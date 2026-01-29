@@ -3,6 +3,7 @@ import requests
 import hashlib
 from fastapi import APIRouter, HTTPException, Query
 from dotenv import load_dotenv
+from fastapi.responses import RedirectResponse
 
 load_dotenv()
 
@@ -41,7 +42,14 @@ def zerodha_callback(request_token: str = Query(None)):
     data = response.json()
 
     # ⚠️ DO NOT return access_token to frontend
-    return {
+    """return {
         "message": "Zerodha authentication successful",
         "status": "connected"
-    }
+    }"""
+
+    frontend_success_url = "http://127.0.0.1:5500/success.html"
+
+    return RedirectResponse(
+        url=f"{frontend_success_url}?status=connected",
+        status_code=302
+)
