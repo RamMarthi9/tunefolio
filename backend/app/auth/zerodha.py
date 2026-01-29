@@ -4,6 +4,7 @@ import hashlib
 from fastapi import APIRouter, HTTPException, Query
 from dotenv import load_dotenv
 from fastapi.responses import RedirectResponse
+from backend.app.services.db import save_zerodha_session
 
 load_dotenv()
 
@@ -39,17 +40,21 @@ def zerodha_callback(request_token: str = Query(None)):
             detail="Failed to authenticate with Zerodha"
         )
 
-    data = response.json()
+    data = response.json()["data"]
 
-    # ⚠️ DO NOT return access_token to frontend
-    """return {
-        "message": "Zerodha authentication successful",
-        "status": "connected"
-    }"""
+    user_id = data["user_id"]
+    access_token = data["access_token"]
+
+    # ✅ Save token securely in SQLite
+    save_zerodha_session(
+        user_id=user_id,
+        access_token=access_token
+    )
 
     frontend_success_url = "http://127.0.0.1:5500/success.html"
 
     return RedirectResponse(
         url=f"{frontend_success_url}?status=connected",
         status_code=302
-)
+    )
+
