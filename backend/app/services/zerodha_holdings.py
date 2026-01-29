@@ -1,7 +1,6 @@
 import requests
 from fastapi import HTTPException
-from backend.app.services.db import get_active_access_token
-
+from backend.app.services.db import get_active_access_token, save_holdings_snapshot
 
 def fetch_zerodha_holdings():
     access_token = get_active_access_token()
@@ -31,4 +30,11 @@ def fetch_zerodha_holdings():
             detail="Failed to fetch Zerodha holdings"
         )
 
-    return response.json()["data"]
+    holdings = response.json()["data"]
+
+    # ✅ Persist snapshot
+    save_holdings_snapshot(holdings)
+
+    return holdings
+
+

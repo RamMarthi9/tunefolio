@@ -82,3 +82,109 @@ def get_active_zerodha_session():
         "created_at": row["created_at"],
         "expires_at": row["expires_at"]
     }
+
+def get_active_access_token():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT access_token
+        FROM zerodha_sessions
+        WHERE is_active = 1
+        ORDER BY created_at DESC
+        LIMIT 1
+    """)
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    return row["access_token"]
+
+def init_holdings_snapshot_table():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS holdings_snapshots (
+            id TEXT PRIMARY KEY,
+            snapshot_at TEXT NOT NULL,
+            snapshot_type TEXT NOT NULL,   -- 'SOD' or 'EOD'
+            tradingsymbol TEXT NOT NULL,
+            exchange TEXT,
+            quantity INTEGER,
+            average_price REAL,
+            last_price REAL,
+            pnl REAL
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+import uuid
+from datetime import datetime, time
+import pytz
+
+IST = pytz.timezone("Asia/Kolkata")
+
+def save_holdings_snapshot(holdings: list):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    now_ist = datetime.now(IST)
+    today = now_ist.date().isoformat()
+
+    snapshot_type = None
+
+    # 🕣 Start of Day snapshot window
+    if time(8, 30) <= now_ist.time() <= time(9, 15):
+        snapshot_type = "SOD"
+
+    # 🕟 End of Day snapshot window
+    elif now_ist.time() >= time(16, 30):
+        snapshot_type = "EOD"
+
+    # ❌ Outside snapshot windows → do nothing
+    if snapshot_type is None:
+        conn.close()
+        return
+
+    # ❌ Prevent duplicate SOD/EOD snapshots for the same day
+    cursor.execute("""
+        SELECT 1 FROM holdings_snapshots
+        WHERE DATE(snapshot_at) = ?
+          AND snapshot_type = ?
+        LIMIT 1
+    """, (today, snapshot_type))
+
+    if cursor.fetchone():
+        conn.close()
+        return
+
+    snapshot_time = now_ist.isoformat()
+
+    for h in holdings:
+        cursor.execute("""
+            INSERT INTO holdings_snapshots (
+                id, snapshot_at, snapshot_type,
+                tradingsymbol, exchange,
+                quantity, average_price, last_price, pnl
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            str(uuid.uuid4()),
+            snapshot_time,
+            snapshot_type,
+            h.get("tradingsymbol"),
+            h.get("exchange"),
+            h.get("quantity"),
+            h.get("average_price"),
+            h.get("last_price"),
+            h.get("pnl")
+        ))
+
+    conn.commit()
+    conn.close()
