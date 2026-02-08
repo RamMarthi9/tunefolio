@@ -1,0 +1,215 @@
+:root {
+    --bg: #0f172a;
+    --card: #111827;
+    --border: #1f2933;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --green: #16a34a;
+    --red: #dc2626;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* =========================
+   Header
+========================= */
+.app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+}
+
+.brand h1 {
+    margin: 0;
+    font-size: 22px;
+}
+
+.subtitle {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.status {
+    font-size: 13px;
+    color: var(--muted);
+}
+
+#connection-status {
+    color: var(--green);
+    margin-right: 12px;
+}
+
+/* =========================
+   KPI Strip
+========================= */
+.kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    padding: 16px 24px;
+}
+
+.kpi {
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 16px;
+    border-radius: 8px;
+}
+
+.kpi label {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.kpi .value {
+    font-size: 20px;
+    margin-top: 6px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* =========================
+   Content & Cards
+========================= */
+.content {
+    padding: 24px;
+    display: grid;
+    gap: 24px;
+}
+
+.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.card-header h2 {
+    margin: 0;
+}
+
+.placeholder {
+    color: var(--muted);
+}
+
+/* =========================
+   Table
+========================= */
+.table-wrapper {
+    overflow-x: auto;
+    margin-top: 12px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+/* Header cells */
+thead th {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+/* Body cells */
+tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Left-aligned columns */
+th:nth-child(1),
+td:nth-child(1),
+th:nth-child(8),
+td:nth-child(8) {
+    text-align: left;
+}
+
+/* Right-aligned numeric columns */
+th:nth-child(2),
+th:nth-child(3),
+th:nth-child(4),
+th:nth-child(5),
+th:nth-child(6),
+th:nth-child(7),
+td:nth-child(2),
+td:nth-child(3),
+td:nth-child(4),
+td:nth-child(5),
+td:nth-child(6),
+td:nth-child(7) {
+    text-align: right;
+}
+
+/* Stock symbol emphasis */
+.symbol {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+/* =========================
+   States
+========================= */
+.loading {
+    text-align: center;
+    padding: 20px;
+    color: var(--muted);
+}
+
+.positive {
+    color: var(--green);
+    font-weight: 600;
+}
+
+.negative {
+    color: var(--red);
+    font-weight: 600;
+}
+
+/* =========================
+   Responsive
+========================= */
+@media (max-width: 768px) {
+    .kpi-strip {
+        grid-template-columns: 1fr;
+    }
+
+    thead {
+        display: none;
+    }
+
+    tbody td {
+        display: block;
+        text-align: right;
+    }
+
+    tbody td::before {
+        content: attr(data-label);
+        float: left;
+        color: var(--muted);
+    }
+}

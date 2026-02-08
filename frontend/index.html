@@ -1,61 +1,180 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>TuneFolio – Finance with Finesse</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f9fbfd;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-    }
-    .card {
-      background: white;
-      padding: 40px;
-      border-radius: 10px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-      text-align: center;
-      max-width: 400px;
-    }
-    h1 {
-      margin-bottom: 10px;
-    }
-    p {
-      color: #555;
-      margin-bottom: 30px;
-    }
-    button {
-      background: #2962ff;
-      color: white;
-      border: none;
-      padding: 12px 20px;
-      border-radius: 6px;
-      font-size: 16px;
-      cursor: pointer;
-    }
-    button:hover {
-      background: #0039cb;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>TuneFolio</h1>
-    <p>Finance with Finesse</p>
-    <button onclick="connectZerodha()">Connect Zerodha</button>
-  </div>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>TuneFolio – Portfolio Overview</title>
 
-  <script>
-    function connectZerodha() {
-      const apiKey = "hjhsazuwl7x0hltl";
-      const redirectUrl = encodeURIComponent("http://127.0.0.1:8000/auth/zerodha/callback");
-      window.location.href =
-        `https://kite.zerodha.com/connect/login?api_key=${apiKey}&redirect_url=${redirectUrl}`;
-    }
-  </script>
+    <link rel="stylesheet" href="assets/css/main.css" />
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="app-header">
+        <div class="brand">
+            <h1>TuneFolio</h1>
+            <span class="subtitle">Portfolio Intelligence</span>
+        </div>
+
+        <div class="status">
+            <span id="connection-status">● Connected to Zerodha</span>
+            <span id="last-sync">Last sync: --</span>
+        </div>
+    </header>
+
+    <!-- KPI Summary -->
+    <section class="kpi-strip">
+        <div class="kpi">
+            <label>Total Value</label>
+            <div id="kpi-current" class="value">—</div>
+        </div>
+        <div class="kpi">
+            <label>Invested</label>
+            <div id="kpi-invested" class="value">—</div>
+        </div>
+        <div class="kpi">
+            <label>Total P&amp;L</label>
+            <div id="kpi-pnl" class="value">—</div>
+        </div>
+    </section>
+
+    <!-- Holdings -->
+    <main class="content">
+        <section class="card">
+            <div class="card-header">
+                <h2>Holdings</h2>
+                <span id="holdings-count"></span>
+            </div>
+
+            <div class="table-wrapper">
+                <table id="holdings-table">
+                    <thead>
+                        <tr>
+                            <th>Stock</th>
+                            <th>Qty</th>
+                            <th>Avg Buy</th>
+                            <th>LTP</th>
+                            <th>Invested</th>
+                            <th>Value</th>
+                            <th>P&amp;L</th>
+                            <th>Sector</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="8" class="loading">Loading holdings…</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Future sections -->
+        <section class="card placeholder">
+            <h3>Sector Allocation</h3>
+            <p>Coming soon</p>
+        </section>
+
+        <section class="card placeholder">
+            <h3>Trading Journal & History</h3>
+            <p>Coming soon</p>
+        </section>
+    </main>
+
+    <!-- ✅ JS MUST LOAD AFTER DOM -->
+    <script>
+        const API_BASE = "http://127.0.0.1:8000";
+
+        async function loadHoldings() {
+            try {
+                const res = await fetch(`${API_BASE}/portfolio/holdings`);
+
+                if (!res.ok) {
+                    throw new Error(`API failed with status ${res.status}`);
+                }
+
+                const json = await res.json();
+
+                // ✅ STEP 4: DEBUG LOG
+                console.log("Holdings API response:", json);
+
+                if (!json.data || !Array.isArray(json.data)) {
+                    throw new Error("Invalid API response shape");
+                }
+
+                renderHoldings(json.data);
+                renderKPIs(json.data);
+
+                document.getElementById("holdings-count").innerText =
+                    `${json.count} stocks`;
+
+                document.getElementById("last-sync").innerText =
+                    "Last sync: " + new Date().toLocaleTimeString();
+
+            } catch (err) {
+                console.error("Failed to load holdings:", err);
+
+                const loadingRow = document.querySelector(".loading");
+                if (loadingRow) {
+                    loadingRow.innerText = "Failed to load holdings";
+                }
+            }
+        }
+
+        function renderKPIs(data) {
+            let invested = 0;
+            let current = 0;
+
+            data.forEach(h => {
+                invested += h.invested_value;
+                current += h.current_value;
+            });
+
+            const pnl = current - invested;
+
+            document.getElementById("kpi-invested").innerText =
+                formatCurrency(invested);
+
+            document.getElementById("kpi-current").innerText =
+                formatCurrency(current);
+
+            const pnlEl = document.getElementById("kpi-pnl");
+            pnlEl.innerText = formatCurrency(pnl);
+            pnlEl.className = "value " + (pnl >= 0 ? "positive" : "negative");
+        }
+
+        function renderHoldings(data) {
+            const tbody = document.querySelector("#holdings-table tbody");
+            tbody.innerHTML = "";
+
+            data.forEach(h => {
+                const tr = document.createElement("tr");
+
+                tr.innerHTML = `
+                    <td class="symbol">${h.symbol}</td>
+                    <td>${h.quantity}</td>
+                    <td>${formatCurrency(h.avg_buy_price)}</td>
+                    <td>${formatCurrency(h.current_price)}</td>
+                    <td>${formatCurrency(h.invested_value)}</td>
+                    <td>${formatCurrency(h.current_value)}</td>
+                    <td class="${h.pnl >= 0 ? "positive" : "negative"}">
+                        ${formatCurrency(h.pnl)}
+                    </td>
+                    <td>${h.sector || "—"}</td>
+                `;
+
+                tbody.appendChild(tr);
+            });
+        }
+
+        function formatCurrency(val) {
+            return "₹" + Number(val).toLocaleString("en-IN", {
+                maximumFractionDigits: 2
+            });
+        }
+
+        // 🚀 Kick off
+        loadHoldings();
+    </script>
 </body>
 </html>
