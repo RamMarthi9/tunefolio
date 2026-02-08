@@ -10,6 +10,30 @@ from backend.app.services.instruments import enrich_instrument_if_missing
 
 router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
 
+@router.get("/overview")
+def portfolio_overview():
+    """
+    Portfolio summary (Phase 1)
+    """
+    try:
+        holdings = fetch_zerodha_holdings()
+    except Exception as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    total_stocks = len(holdings)
+    total_quantity = sum(h["quantity"] for h in holdings)
+    total_invested = sum(h["average_price"] * h["quantity"] for h in holdings)
+    current_value = sum(h["last_price"] * h["quantity"] for h in holdings)
+    total_pnl = current_value - total_invested
+
+    return {
+        "total_stocks": total_stocks,
+        "total_quantity": total_quantity,
+        "total_invested_value": round(total_invested, 2),
+        "current_value": round(current_value, 2),
+        "total_pnl": round(total_pnl, 2),
+    }
+
 
 @router.get("/holdings")
 def portfolio_holdings():
