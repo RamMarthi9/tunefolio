@@ -3,12 +3,10 @@ from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parents[2] / "data" / "tunefolio.db"
 
-
 def get_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
-
 
 def init_db():
     conn = get_connection()
@@ -188,3 +186,141 @@ def save_holdings_snapshot(holdings: list):
 
     conn.commit()
     conn.close()
+
+def create_instruments_table():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS instruments (
+            symbol TEXT NOT NULL,
+            exchange TEXT NOT NULL,
+            company_name TEXT,
+            sector TEXT,
+            industry TEXT,
+            isin TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (symbol, exchange)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+def get_latest_snapshot_meta(tradingsymbol: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            MAX(snapshot_at) as last_snapshot_at,
+            COUNT(*) as snapshot_count
+        FROM holdings_snapshots
+        WHERE tradingsymbol = ?
+    """, (tradingsymbol,))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row or not row[0]:
+        return {
+            "last_snapshot_at": None,
+            "snapshot_count": 0
+        }
+
+    return {
+        "last_snapshot_at": row[0],
+        "snapshot_count": row[1]
+    }
+
+def upsert_instruments_from_holdings(holdings: list):
+    """
+    Populate instruments table using live Zerodha holdings.
+    Inserts only if (symbol, exchange) does not already exist.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = """
+        INSERT OR IGNORE INTO instruments (
+            symbol,
+            exchange,
+            company_name,
+            sector,
+            industry,
+            isin
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+    """
+
+    for h in holdings:
+        cursor.execute(
+            query,
+            (
+                h.get("tradingsymbol"),
+                h.get("exchange"),
+                None,                  # company_name (later)
+                None,                  # sector
+                None,                  # industry
+                h.get("isin")
+            )
+        )
+
+    conn.commit()
+    conn.close()
+
+def enrich_instruments_with_sector():
+    from backend.app.services.sector_map import get_sector_info
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT symbol, exchange FROM instruments")
+    rows = cursor.fetchall()
+
+    for row in rows:
+        symbol = row["symbol"]
+        info = get_sector_info(symbol)
+
+        cursor.execute("""
+            UPDATE instruments
+            SET sector = ?, industry = ?
+            WHERE symbol = ?
+        """, (info["sector"], info["industry"], symbol))
+
+    conn.commit()
+    conn.close()
+
+def get_instrument(symbol: str, exchange: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT * FROM instruments
+        WHERE symbol = ? AND exchange = ?
+        """,
+        (symbol, exchange)
+    )
+
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+def update_instrument_sector(symbol, exchange, sector, industry):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        UPDATE instruments
+        SET sector = ?, industry = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE symbol = ? AND exchange = ?
+        """,
+        (sector, industry, symbol, exchange)
+    )
+
+    conn.commit()
+    conn.close()
+
+

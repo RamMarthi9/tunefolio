@@ -18,3 +18,8 @@ Thumbs.db
 
 # Data files
 backend/data/*.db
+
+# Starting front end
+# Python -m http.server 5500
+# Starting back end
+# uvicorn backend.app.main:app

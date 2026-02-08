@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from fastapi.responses import RedirectResponse
 from backend.app.services.db import save_zerodha_session
 
-load_dotenv()
+load_dotenv(dotenv_path="backend/.env")
 
 router = APIRouter()
 
@@ -58,3 +58,10 @@ def zerodha_callback(request_token: str = Query(None)):
         status_code=302
     )
 
+@router.get("/login")
+def zerodha_login():
+    login_url = (
+        f"https://kite.trade/connect/login"
+        f"?api_key={KITE_API_KEY}&v=3"
+    )
+    return RedirectResponse(url=login_url)
