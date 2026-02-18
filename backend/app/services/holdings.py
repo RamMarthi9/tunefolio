@@ -7,3 +7,4 @@ router = APIRouter()
 @router.get("/holdings")
 def get_holdings():
     return fetch_zerodha_holdings()
+

@@ -1,6 +1,6 @@
 # TuneFolio
 
-**Finance with Finesse**
+**Equity with Ease**
 
 TuneFolio is a **read-only portfolio intelligence platform** that helps investors
 understand *why* their portfolio behaves the way it does — using secure,

@@ -2,6 +2,7 @@ import sqlite3
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parents[2] / "data" / "tunefolio.db"
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)  # Ensure data/ dir exists (for Render deploys)
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH)
@@ -314,7 +315,7 @@ def update_instrument_sector(symbol, exchange, sector, industry):
     cursor.execute(
         """
         UPDATE instruments
-        SET sector = ?, industry = ?, updated_at = CURRENT_TIMESTAMP
+        SET sector = ?, industry = ?
         WHERE symbol = ? AND exchange = ?
         """,
         (sector, industry, symbol, exchange)

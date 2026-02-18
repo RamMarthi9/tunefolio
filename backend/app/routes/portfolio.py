@@ -7,6 +7,7 @@ from backend.app.services.db import (
     get_instrument
 )
 from backend.app.services.instruments import enrich_instrument_if_missing
+from backend.app.services.db import get_connection
 
 router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
 
@@ -34,61 +35,113 @@ def portfolio_overview():
         "total_pnl": round(total_pnl, 2),
     }
 
-
 @router.get("/holdings")
 def portfolio_holdings():
-    """
-    Phase 2:
-    - Live holdings from Zerodha
-    - Instruments auto-upserted
-    - Sector & industry auto-enriched (cached)
-    - Snapshot metadata attached
-    - Sector & industry returned in response
-    """
-
-    # 1️⃣ Fetch live holdings
     try:
         holdings = fetch_zerodha_holdings()
     except Exception as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-    # 2️⃣ Ensure instruments exist (idempotent)
+    # Ensure instruments exist & enriched
     upsert_instruments_from_holdings(holdings)
 
     data = []
+    total_invested = 0
+    total_current = 0
 
-    # 3️⃣ Enrich, read back from DB, shape response
     for h in holdings:
-        symbol = h["tradingsymbol"]
-        exchange = h["exchange"]
+        invested_value = round(h["average_price"] * h["quantity"], 2)
+        current_value = round(h["last_price"] * h["quantity"], 2)
+        pnl = round(current_value - invested_value, 2)
 
-        # 🔹 Ensure enrichment (runs only once per symbol)
-        enrich_instrument_if_missing(symbol, exchange)
+        total_invested += invested_value
+        total_current += current_value
 
-        # 🔹 READ instrument metadata from DB
-        instrument = get_instrument(symbol, exchange)
+        # Look up sector from instruments table
+        instrument = get_instrument(h["tradingsymbol"], h["exchange"])
+        sector = instrument["sector"] if instrument and instrument["sector"] else None
 
-        invested_value = h["average_price"] * h["quantity"]
-        current_value = h["last_price"] * h["quantity"]
-
-        snapshot_meta = get_latest_snapshot_meta(symbol)
+        # Trigger enrichment if sector is still missing
+        if not sector:
+            enrich_instrument_if_missing(h["tradingsymbol"], h["exchange"])
+            instrument = get_instrument(h["tradingsymbol"], h["exchange"])
+            sector = instrument["sector"] if instrument and instrument["sector"] else None
 
         data.append({
-            "symbol": symbol,
-            "exchange": exchange,
-            "sector": instrument["sector"],
-            "industry": instrument["industry"],
+            "symbol": h["tradingsymbol"],
+            "exchange": h["exchange"],
             "quantity": h["quantity"],
             "avg_buy_price": h["average_price"],
             "current_price": h["last_price"],
-            "invested_value": round(invested_value, 2),
-            "current_value": round(current_value, 2),
-            "pnl": round(h["pnl"], 2),
-            "last_snapshot_at": snapshot_meta["last_snapshot_at"],
-            "snapshot_count": snapshot_meta["snapshot_count"]
+            "invested_value": invested_value,
+            "current_value": current_value,
+            "pnl": pnl,
+            "sector": sector
         })
 
     return {
         "count": len(data),
-        "data": data
+        "data": data,
+        "meta": {
+            "total_invested": round(total_invested, 2),
+            "total_current": round(total_current, 2),
+            "total_pnl": round(total_current - total_invested, 2)
+        }
+    }
+
+@router.get("/sector-allocation")
+def sector_allocation():
+    """
+    Aggregated sector allocation
+    - Current value
+    - Invested value
+    - P&L
+    """
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = """
+    SELECT
+        i.sector AS sector,
+        SUM(h.quantity * h.last_price) AS current_value,
+        SUM(h.quantity * h.average_price) AS invested_value,
+        SUM(h.pnl) AS pnl
+    FROM holdings_snapshots h
+    JOIN instruments i
+      ON h.tradingsymbol = i.symbol
+     AND h.exchange = i.exchange
+    WHERE h.snapshot_at = (
+        SELECT MAX(snapshot_at) FROM holdings_snapshots
+    )
+    GROUP BY i.sector
+    """
+
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    conn.close()
+
+    total_current = sum(row["current_value"] for row in rows) or 1
+    total_invested = sum(row["invested_value"] for row in rows) or 1
+
+    by_current_value = []
+    by_invested_value = []
+
+    for r in rows:
+        by_current_value.append({
+            "sector": r["sector"] or "Unknown",
+            "value": round(r["current_value"], 2),
+            "percentage": round((r["current_value"] / total_current) * 100, 2),
+            "profit": round(r["pnl"], 2)
+        })
+
+        by_invested_value.append({
+            "sector": r["sector"] or "Unknown",
+            "value": round(r["invested_value"], 2),
+            "percentage": round((r["invested_value"] / total_invested) * 100, 2)
+        })
+
+    return {
+        "by_current_value": by_current_value,
+        "by_invested_value": by_invested_value
     }

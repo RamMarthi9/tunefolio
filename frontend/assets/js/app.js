@@ -1,10 +1,10 @@
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost"
+    ? "http://127.0.0.1:8000"
+    : "";
 
-async function fetchOverview() {
-  const res = await fetch(`${API_BASE}/portfolio/overview`);
-  if (!res.ok) throw new Error("Failed to load overview");
-  return res.json();
-}
+/* ========================================
+   Fetch helpers
+======================================== */
 
 async function fetchHoldings() {
   const res = await fetch(`${API_BASE}/portfolio/holdings`);
@@ -12,59 +12,907 @@ async function fetchHoldings() {
   return res.json();
 }
 
-function formatINR(value) {
-  return "₹" + value.toLocaleString("en-IN", {
+async function fetchSectorAllocation() {
+  const res = await fetch(`${API_BASE}/portfolio/sector-allocation`);
+  if (!res.ok) throw new Error("Failed to load sector allocation");
+  return res.json();
+}
+
+/* ========================================
+   Utilities
+======================================== */
+
+function formatINR(value = 0) {
+  return "\u20B9" + Number(value).toLocaleString("en-IN", {
     maximumFractionDigits: 2
   });
 }
 
-async function renderOverview() {
-  try {
-    const o = await fetchOverview();
+function generateColors(n) {
+  return Array.from({ length: n }, (_, i) =>
+    `hsl(${(i * 360) / n}, 65%, 55%)`
+  );
+}
 
-    document.getElementById("total-invested").innerText =
-      formatINR(o.total_invested_value);
+function hslToHsla(hsl, alpha) {
+  return hsl.replace("hsl(", "hsla(").replace(")", `, ${alpha})`);
+}
 
-    document.getElementById("current-value").innerText =
-      formatINR(o.current_value);
+/* ========================================
+   Global State
+======================================== */
 
-    const pnlEl = document.getElementById("total-pnl");
-    pnlEl.innerText = formatINR(o.total_pnl);
-    pnlEl.className = o.total_pnl >= 0 ? "positive" : "negative";
+const chartRegistry = {};
 
-  } catch (err) {
-    console.error(err);
+let holdingsData = [];
+let sectorAllocData = null;
+let currentSort = { key: null, dir: "asc" };
+let dropdownsInitialized = false;
+
+const globalFilter = {
+  sectors: [],
+  stocks: []
+};
+
+const drilldownState = {
+  measure: "invested",
+  dimension: "sector"
+};
+
+/* ========================================
+   Global Filter Helpers
+======================================== */
+
+function isFilterActive() {
+  return globalFilter.sectors.length > 0 || globalFilter.stocks.length > 0;
+}
+
+// OR logic: show holdings matching ANY selected sector OR ANY selected stock
+function getGloballyFilteredHoldings() {
+  if (!isFilterActive()) return [...holdingsData];
+
+  return holdingsData.filter(h => {
+    const matchesSector = globalFilter.sectors.length > 0 &&
+      globalFilter.sectors.includes(h.sector);
+    const matchesStock = globalFilter.stocks.length > 0 &&
+      globalFilter.stocks.includes(h.symbol);
+
+    // OR logic: if only sectors selected, filter by sector
+    // if only stocks selected, filter by stock
+    // if both selected, match either
+    if (globalFilter.sectors.length > 0 && globalFilter.stocks.length > 0) {
+      return matchesSector || matchesStock;
+    }
+    if (globalFilter.sectors.length > 0) return matchesSector;
+    if (globalFilter.stocks.length > 0) return matchesStock;
+    return true;
+  });
+}
+
+function getGloballyFilteredSectorAlloc() {
+  if (!sectorAllocData) return { by_current_value: [], by_invested_value: [] };
+  if (!isFilterActive()) return sectorAllocData;
+
+  // Rebuild sector aggregation from filtered holdings
+  const filtered = getGloballyFilteredHoldings();
+  const sectorMap = {};
+
+  filtered.forEach(h => {
+    const sec = h.sector || "Unknown";
+    if (!sectorMap[sec]) sectorMap[sec] = { invested: 0, current: 0, pnl: 0 };
+    sectorMap[sec].invested += Number(h.invested_value || 0);
+    sectorMap[sec].current += Number(h.current_value || 0);
+    sectorMap[sec].pnl += Number(h.pnl || 0);
+  });
+
+  const totalCurrent = Object.values(sectorMap).reduce((s, v) => s + v.current, 0) || 1;
+  const totalInvested = Object.values(sectorMap).reduce((s, v) => s + v.invested, 0) || 1;
+
+  return {
+    by_current_value: Object.entries(sectorMap).map(([sector, v]) => ({
+      sector,
+      value: Math.round(v.current * 100) / 100,
+      percentage: Math.round((v.current / totalCurrent) * 10000) / 100,
+      profit: Math.round(v.pnl * 100) / 100
+    })),
+    by_invested_value: Object.entries(sectorMap).map(([sector, v]) => ({
+      sector,
+      value: Math.round(v.invested * 100) / 100,
+      percentage: Math.round((v.invested / totalInvested) * 10000) / 100
+    }))
+  };
+}
+
+function toggleGlobalSectorFilter(sector) {
+  if (!sector) return;
+  const idx = globalFilter.sectors.indexOf(sector);
+  if (idx === -1) {
+    globalFilter.sectors.push(sector);
+  } else {
+    globalFilter.sectors.splice(idx, 1);
+  }
+  applyGlobalFilter();
+}
+
+function toggleGlobalStockFilter(stock) {
+  if (!stock) return;
+  const idx = globalFilter.stocks.indexOf(stock);
+  if (idx === -1) {
+    globalFilter.stocks.push(stock);
+  } else {
+    globalFilter.stocks.splice(idx, 1);
+  }
+  applyGlobalFilter();
+}
+
+function clearAllFilters() {
+  globalFilter.sectors = [];
+  globalFilter.stocks = [];
+  applyGlobalFilter();
+}
+
+/* ========================================
+   Pie Chart Rendering (with click + drill-down)
+======================================== */
+
+function buildPieDrilldownData(canvasId, sectorDataset) {
+  // If a single sector is selected and we have holdings data,
+  // drill down to show individual stocks within that sector
+  if (globalFilter.sectors.length === 1 && holdingsData.length > 0) {
+    const selectedSector = globalFilter.sectors[0];
+    const measure = canvasId === "sectorCurrentChart" ? "current_value" : "invested_value";
+    const stocksInSector = holdingsData.filter(h => h.sector === selectedSector);
+
+    if (stocksInSector.length > 0) {
+      return {
+        isDrilldown: true,
+        data: stocksInSector.map(h => ({
+          sector: h.symbol,  // reuse sector field for label
+          value: Number(h[measure] || 0)
+        })).sort((a, b) => b.value - a.value)
+      };
+    }
+  }
+
+  return { isDrilldown: false, data: sectorDataset };
+}
+
+function renderPie(canvasId, fullDataset) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !Array.isArray(fullDataset) || fullDataset.length === 0) return;
+
+  if (chartRegistry[canvasId]) {
+    chartRegistry[canvasId].destroy();
+  }
+
+  // Check if we should drill down into a single sector
+  const { isDrilldown, data: dataset } = buildPieDrilldownData(canvasId, fullDataset);
+
+  const total = dataset.reduce((sum, d) => sum + Number(d.value || 0), 0);
+  const colors = generateColors(dataset.length);
+
+  // Dim non-selected sectors when filter is active (only in sector view, not drilldown)
+  const bgColors = dataset.map((d, i) => {
+    if (!isDrilldown && globalFilter.sectors.length > 0 &&
+        !globalFilter.sectors.includes(d.sector)) {
+      return hslToHsla(colors[i], 0.2);
+    }
+    return colors[i];
+  });
+
+  chartRegistry[canvasId] = new Chart(canvas, {
+    type: "pie",
+    data: {
+      labels: dataset.map(d => d.sector),
+      datasets: [{
+        data: dataset.map(d => d.value),
+        backgroundColor: bgColors,
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      layout: { padding: 0 },
+      onClick: (event, elements) => {
+        if (elements.length === 0) return;
+        const idx = elements[0].index;
+        const clickedLabel = dataset[idx].sector;
+
+        if (isDrilldown) {
+          // Clicking a stock in drill-down view toggles stock filter
+          toggleGlobalStockFilter(clickedLabel);
+        } else {
+          // Clicking a sector toggles sector filter
+          toggleGlobalSectorFilter(clickedLabel);
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          color: "#ffffff",
+          font: { weight: "600", size: 9 },
+          formatter: (value) => {
+            const pct = total ? ((value / total) * 100).toFixed(1) : 0;
+            return pct >= 5 ? `${pct}%` : "";
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const pct = total ? ((ctx.parsed / total) * 100).toFixed(1) : 0;
+              const prefix = isDrilldown ? "(Stock) " : "";
+              return `${prefix}${ctx.label}: \u20B9${ctx.parsed.toLocaleString("en-IN")} (${pct}%)`;
+            }
+          }
+        }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+}
+
+/* ========================================
+   P&L Bar Chart Rendering (with click)
+======================================== */
+
+function renderPnlBar(canvasId, dataset) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !Array.isArray(dataset) || dataset.length === 0) return;
+
+  if (chartRegistry[canvasId]) {
+    chartRegistry[canvasId].destroy();
+  }
+
+  const labels = dataset.map(d => d.sector);
+  const values = dataset.map(d => d.profit);
+  const colors = values.map((v, i) => {
+    const base = v >= 0 ? "#16a34a" : "#dc2626";
+    // Dim non-selected sectors
+    if (globalFilter.sectors.length > 0 &&
+        !globalFilter.sectors.includes(dataset[i].sector)) {
+      return base + "40";
+    }
+    return base;
+  });
+
+  chartRegistry[canvasId] = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderRadius: 3,
+        barThickness: 14
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      layout: { padding: 0 },
+      indexAxis: "y",
+      onClick: (event, elements) => {
+        if (elements.length === 0) return;
+        const idx = elements[0].index;
+        toggleGlobalSectorFilter(dataset[idx].sector);
+      },
+      scales: {
+        x: {
+          grid: { color: "rgba(255,255,255,0.05)" },
+          ticks: {
+            color: "#9ca3af",
+            font: { size: 9 },
+            callback: (v) => "\u20B9" + Number(v).toLocaleString("en-IN")
+          }
+        },
+        y: {
+          grid: { display: false },
+          ticks: {
+            color: "#e5e7eb",
+            font: { size: 9 }
+          }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        datalabels: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `P&L: \u20B9${ctx.parsed.x.toLocaleString("en-IN")}`
+          }
+        }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+}
+
+/* ========================================
+   Unified Drilldown Bar Chart (with click)
+======================================== */
+
+function buildDrilldownDataset(measure, dimension) {
+  const filteredAlloc = getGloballyFilteredSectorAlloc();
+
+  if (dimension === "sector") {
+    const source = measure === "invested"
+      ? filteredAlloc.by_invested_value
+      : filteredAlloc.by_current_value;
+    if (!source) return [];
+    return source.map(d => ({
+      label: d.sector,
+      value: d.value
+    })).sort((a, b) => b.value - a.value);
+  }
+
+  // Stock-level: from filtered holdings
+  const filtered = getGloballyFilteredHoldings();
+  if (filtered.length === 0) return [];
+
+  return filtered.map(h => ({
+    label: h.symbol,
+    value: Number(measure === "invested" ? h.invested_value : h.current_value) || 0
+  })).sort((a, b) => b.value - a.value);
+}
+
+function renderDrilldownBar(canvasId, measure, dimension) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  const dataset = buildDrilldownDataset(measure, dimension);
+  if (dataset.length === 0) {
+    if (chartRegistry[canvasId]) {
+      chartRegistry[canvasId].destroy();
+      delete chartRegistry[canvasId];
+    }
+    return;
+  }
+
+  if (chartRegistry[canvasId]) {
+    chartRegistry[canvasId].destroy();
+  }
+
+  const labels = dataset.map(d => d.label);
+  const values = dataset.map(d => d.value);
+  const baseColor = measure === "invested" ? "#6366f1" : "#22d3ee";
+
+  // Dim non-selected items
+  const colors = dataset.map(d => {
+    if (dimension === "sector" && globalFilter.sectors.length > 0 &&
+        !globalFilter.sectors.includes(d.label)) {
+      return baseColor + "40";
+    }
+    if (dimension === "stock" && globalFilter.stocks.length > 0 &&
+        !globalFilter.stocks.includes(d.label)) {
+      return baseColor + "40";
+    }
+    return baseColor;
+  });
+
+  // Dynamic height for many items
+  const boxEl = canvas.parentElement;
+  if (boxEl) {
+    const dynamicH = Math.max(260, dataset.length * 20);
+    boxEl.style.height = dynamicH + "px";
+  }
+
+  chartRegistry[canvasId] = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderRadius: 3,
+        barThickness: dimension === "stock" ? 10 : 14
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      layout: { padding: 0 },
+      indexAxis: "y",
+      onClick: (event, elements) => {
+        if (elements.length === 0) return;
+        const idx = elements[0].index;
+        const clickedLabel = labels[idx];
+        if (dimension === "sector") {
+          toggleGlobalSectorFilter(clickedLabel);
+        } else {
+          toggleGlobalStockFilter(clickedLabel);
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: "rgba(255,255,255,0.05)" },
+          ticks: {
+            color: "#9ca3af",
+            font: { size: 9 },
+            callback: (v) => "\u20B9" + Number(v).toLocaleString("en-IN")
+          }
+        },
+        y: {
+          grid: { display: false },
+          ticks: {
+            color: "#e5e7eb",
+            font: { size: dimension === "stock" ? 8 : 9 }
+          }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        datalabels: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const lbl = measure === "invested" ? "Invested" : "Current";
+              return `${lbl}: \u20B9${ctx.parsed.x.toLocaleString("en-IN")}`;
+            }
+          }
+        }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+}
+
+function refreshUnifiedDrilldown() {
+  renderDrilldownBar("unifiedDrilldownChart", drilldownState.measure, drilldownState.dimension);
+}
+
+/* ========================================
+   Multi-Select Dropdown Component
+======================================== */
+
+function createMultiSelect(containerId, items, onChangeCallback) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const display = container.querySelector(".multi-select-display");
+  const dropdown = container.querySelector(".multi-select-dropdown");
+
+  // Build dropdown: search + checkbox options
+  const sorted = [...items].sort();
+  let html = '<input type="text" class="multi-select-search" placeholder="Search\u2026" />';
+  sorted.forEach(item => {
+    html += `
+      <label class="multi-select-option" data-value="${item}">
+        <input type="checkbox" value="${item}" />
+        <span>${item}</span>
+      </label>`;
+  });
+  dropdown.innerHTML = html;
+
+  const searchInput = dropdown.querySelector(".multi-select-search");
+
+  // Toggle open/close
+  display.addEventListener("click", (e) => {
+    e.stopPropagation();
+    // Close other open dropdowns
+    document.querySelectorAll(".multi-select.open").forEach(ms => {
+      if (ms !== container) ms.classList.remove("open");
+    });
+    container.classList.toggle("open");
+    if (container.classList.contains("open")) {
+      searchInput.value = "";
+      searchInput.focus();
+      // Reset search visibility
+      dropdown.querySelectorAll(".multi-select-option").forEach(opt => {
+        opt.style.display = "flex";
+      });
+    }
+  });
+
+  // Search within dropdown
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.toLowerCase();
+    dropdown.querySelectorAll(".multi-select-option").forEach(opt => {
+      opt.style.display = opt.dataset.value.toLowerCase().includes(q) ? "flex" : "none";
+    });
+  });
+
+  searchInput.addEventListener("click", (e) => e.stopPropagation());
+
+  // Checkbox change
+  dropdown.querySelectorAll("input[type='checkbox']").forEach(cb => {
+    cb.addEventListener("change", (e) => {
+      e.stopPropagation();
+      const selected = getMultiSelectValues(containerId);
+      onChangeCallback(selected);
+    });
+  });
+
+  // Prevent dropdown clicks from bubbling
+  dropdown.addEventListener("click", (e) => e.stopPropagation());
+}
+
+function getMultiSelectValues(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return [];
+  const checked = container.querySelectorAll(".multi-select-dropdown input[type='checkbox']:checked");
+  return Array.from(checked).map(cb => cb.value);
+}
+
+function setMultiSelectValues(containerId, values) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  container.querySelectorAll(".multi-select-dropdown input[type='checkbox']").forEach(cb => {
+    cb.checked = values.includes(cb.value);
+    const opt = cb.closest(".multi-select-option");
+    if (opt) opt.classList.toggle("selected", cb.checked);
+  });
+
+  updateMultiSelectDisplay(containerId, values);
+}
+
+function updateMultiSelectDisplay(containerId, selected) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const display = container.querySelector(".multi-select-display");
+  const placeholder = containerId === "stock-multiselect" ? "All Stocks" : "All Sectors";
+  const arrowSvg = '<svg class="multi-select-arrow" width="12" height="12" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>';
+
+  if (selected.length === 0) {
+    display.innerHTML = `<span class="multi-select-placeholder">${placeholder}</span>${arrowSvg}`;
+  } else {
+    const tagsHtml = selected.map(v =>
+      `<span class="multi-select-tag">${v}<span class="multi-select-tag-remove" data-value="${v}">\u00D7</span></span>`
+    ).join("");
+    display.innerHTML = `<span class="multi-select-tags">${tagsHtml}</span>${arrowSvg}`;
+
+    // Wire up tag removal
+    display.querySelectorAll(".multi-select-tag-remove").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const val = btn.dataset.value;
+
+        if (containerId === "stock-multiselect") {
+          globalFilter.stocks = globalFilter.stocks.filter(s => s !== val);
+        } else {
+          globalFilter.sectors = globalFilter.sectors.filter(s => s !== val);
+        }
+        applyGlobalFilter();
+      });
+    });
   }
 }
+
+function syncDropdownsToGlobalFilter() {
+  setMultiSelectValues("sector-multiselect", globalFilter.sectors);
+  setMultiSelectValues("stock-multiselect", globalFilter.stocks);
+}
+
+/* ========================================
+   Holdings Table Rendering
+======================================== */
+
+function renderHoldingsTable(data) {
+  const tbody = document.querySelector("#holdings-table tbody");
+  if (!tbody) return;
+
+  tbody.innerHTML = "";
+
+  data.forEach(h => {
+    const invested = Number(h.invested_value || 0);
+    const current = Number(h.current_value || 0);
+    const pnl = Number(h.pnl || 0);
+
+    const tr = document.createElement("tr");
+    const sectorLabel = h.sector || "\u2014";
+    const sectorClass = h.sector
+      ? "sector-pill sector-pill--clickable"
+      : "sector-pill sector-unknown";
+
+    tr.innerHTML = `
+      <td class="symbol">${h.symbol}</td>
+      <td><span class="${sectorClass}" data-sector="${h.sector || ""}">${sectorLabel}</span></td>
+      <td>${h.quantity}</td>
+      <td>${formatINR(h.avg_buy_price)}</td>
+      <td>${formatINR(h.current_price)}</td>
+      <td>${formatINR(invested)}</td>
+      <td>${formatINR(current)}</td>
+      <td class="${pnl >= 0 ? "positive" : "negative"}">
+        ${formatINR(pnl)}
+      </td>
+    `;
+
+    // Make sector pill clickable for filtering
+    const pill = tr.querySelector(".sector-pill--clickable");
+    if (pill) {
+      pill.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const sec = pill.dataset.sector;
+        if (sec) toggleGlobalSectorFilter(sec);
+      });
+    }
+
+    tbody.appendChild(tr);
+  });
+}
+
+/* ========================================
+   Sorting & Filtering Pipeline
+======================================== */
+
+function getFilteredAndSorted() {
+  let data = getGloballyFilteredHoldings();
+
+  if (currentSort.key) {
+    const key = currentSort.key;
+    data.sort((a, b) => {
+      let valA = a[key];
+      let valB = b[key];
+
+      if (key === "sector") {
+        valA = (valA || "zzz").toLowerCase();
+        valB = (valB || "zzz").toLowerCase();
+        return currentSort.dir === "asc"
+          ? valA.localeCompare(valB)
+          : valB.localeCompare(valA);
+      }
+
+      valA = Number(valA || 0);
+      valB = Number(valB || 0);
+      return currentSort.dir === "asc" ? valA - valB : valB - valA;
+    });
+  }
+
+  return data;
+}
+
+function sortHoldings(key) {
+  if (currentSort.key === key) {
+    currentSort.dir = currentSort.dir === "asc" ? "desc" : "asc";
+  } else {
+    currentSort.key = key;
+    currentSort.dir = key === "sector" ? "asc" : "desc";
+  }
+
+  renderHoldingsTable(getFilteredAndSorted());
+
+  // Update header icons
+  document.querySelectorAll("#holdings-table .sortable").forEach(th => {
+    th.classList.remove("sort-asc", "sort-desc");
+    if (th.dataset.sort === key) {
+      th.classList.add(currentSort.dir === "asc" ? "sort-asc" : "sort-desc");
+    }
+  });
+}
+
+/* ========================================
+   Central Filter Pipeline
+======================================== */
+
+function applyGlobalFilter() {
+  // 1. Sync dropdowns
+  syncDropdownsToGlobalFilter();
+
+  // 2. Recalculate KPIs from filtered holdings
+  const filtered = getGloballyFilteredHoldings();
+  let totalInvested = 0;
+  let totalCurrent = 0;
+
+  filtered.forEach(h => {
+    totalInvested += Number(h.invested_value || 0);
+    totalCurrent += Number(h.current_value || 0);
+  });
+
+  const totalPnl = totalCurrent - totalInvested;
+
+  document.getElementById("kpi-invested").innerText = formatINR(totalInvested);
+  document.getElementById("kpi-current").innerText = formatINR(totalCurrent);
+
+  const pnlEl = document.getElementById("kpi-pnl");
+  pnlEl.innerText = formatINR(totalPnl);
+  pnlEl.className = "value " + (totalPnl >= 0 ? "positive" : "negative");
+
+  const active = isFilterActive();
+  document.getElementById("holdings-count").innerText = active
+    ? `${filtered.length} of ${holdingsData.length} stocks`
+    : `${holdingsData.length} stocks`;
+
+  // 3. Clear filters bar
+  const clearBar = document.getElementById("clearFiltersBar");
+  const clearLabel = document.getElementById("clearFiltersLabel");
+  if (clearBar) {
+    clearBar.classList.toggle("visible", active);
+    if (active) {
+      const parts = [];
+      if (globalFilter.sectors.length > 0)
+        parts.push(`Sectors: ${globalFilter.sectors.join(", ")}`);
+      if (globalFilter.stocks.length > 0)
+        parts.push(`Stocks: ${globalFilter.stocks.join(", ")}`);
+      clearLabel.textContent = parts.join("  |  ");
+    }
+  }
+
+  // 4. Re-render holdings table
+  renderHoldingsTable(getFilteredAndSorted());
+
+  // 5. Re-render all charts
+  if (sectorAllocData) {
+    // Pies: always show FULL dataset (dimming handled inside renderPie)
+    renderPie("sectorCurrentChart", sectorAllocData.by_current_value);
+    renderPie("sectorInvestedChart", sectorAllocData.by_invested_value);
+
+    // P&L bar: always show full dataset (dimming handled inside renderPnlBar)
+    renderPnlBar("sectorPnlChart", sectorAllocData.by_current_value);
+  }
+
+  // 6. Unified drilldown: uses filtered data via buildDrilldownDataset
+  refreshUnifiedDrilldown();
+}
+
+/* ========================================
+   Initial Data Loaders
+======================================== */
 
 async function renderHoldings() {
+  console.log("renderHoldings called");
+
   try {
     const res = await fetchHoldings();
-    const tbody = document.getElementById("holdings-body");
-    tbody.innerHTML = "";
 
-    res.data.forEach(h => {
-      const tr = document.createElement("tr");
+    if (!res || !Array.isArray(res.data)) {
+      throw new Error("Invalid holdings response shape");
+    }
 
-      tr.innerHTML = `
-        <td>${h.symbol}</td>
-        <td>${h.quantity}</td>
-        <td>${formatINR(h.avg_buy_price)}</td>
-        <td>${formatINR(h.current_price)}</td>
-        <td class="${h.pnl >= 0 ? "positive" : "negative"}">
-          ${formatINR(h.pnl)}
-        </td>
-      `;
+    holdingsData = res.data;
+    renderHoldingsTable(holdingsData);
 
-      tbody.appendChild(tr);
+    /* -------- KPI UPDATE -------- */
+    let totalInvested = 0;
+    let totalCurrent = 0;
+
+    holdingsData.forEach(h => {
+      totalInvested += Number(h.invested_value || 0);
+      totalCurrent += Number(h.current_value || 0);
     });
 
+    const totalPnl = totalCurrent - totalInvested;
+
+    document.getElementById("kpi-invested").innerText = formatINR(totalInvested);
+    document.getElementById("kpi-current").innerText = formatINR(totalCurrent);
+
+    const pnlEl = document.getElementById("kpi-pnl");
+    pnlEl.innerText = formatINR(totalPnl);
+    pnlEl.className = "value " + (totalPnl >= 0 ? "positive" : "negative");
+
+    document.getElementById("last-sync").innerText =
+      "Last sync: " + new Date().toLocaleTimeString();
+
+    document.getElementById("holdings-count").innerText =
+      `${res.count} stocks`;
+
+    // Populate multi-select dropdowns (once)
+    if (!dropdownsInitialized) {
+      const uniqueStocks = [...new Set(holdingsData.map(h => h.symbol))].filter(Boolean);
+      const uniqueSectors = [...new Set(holdingsData.map(h => h.sector))].filter(Boolean);
+
+      createMultiSelect("stock-multiselect", uniqueStocks, (selected) => {
+        globalFilter.stocks = selected;
+        applyGlobalFilter();
+      });
+
+      createMultiSelect("sector-multiselect", uniqueSectors, (selected) => {
+        globalFilter.sectors = selected;
+        applyGlobalFilter();
+      });
+
+      dropdownsInitialized = true;
+    }
+
+    // Refresh drilldown if sector data already loaded
+    if (sectorAllocData) refreshUnifiedDrilldown();
+
+    console.log("KPIs updated successfully");
+
   } catch (err) {
-    console.error(err);
+    console.error("Holdings error:", err);
   }
 }
 
+async function renderSectorAllocation() {
+  try {
+    const data = await fetchSectorAllocation();
+    sectorAllocData = data;
+
+    if (data?.by_current_value?.length) {
+      renderPie("sectorCurrentChart", data.by_current_value);
+    }
+
+    if (data?.by_invested_value?.length) {
+      renderPie("sectorInvestedChart", data.by_invested_value);
+    }
+
+    if (data?.by_current_value?.length) {
+      renderPnlBar("sectorPnlChart", data.by_current_value);
+    }
+
+    refreshUnifiedDrilldown();
+
+  } catch (err) {
+    console.error("Sector allocation error:", err);
+  }
+}
+
+/* ========================================
+   Bootstrap (ORDER MATTERS)
+======================================== */
+
 document.addEventListener("DOMContentLoaded", () => {
-  renderOverview();
+  // Detect auth success redirect (?status=connected)
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("status") === "connected") {
+    const statusEl = document.getElementById("connection-status");
+    if (statusEl) {
+      statusEl.textContent = "\u25cf Just connected to Zerodha";
+      statusEl.style.color = "#16a34a";
+    }
+    // Clean up URL (remove query param without page reload)
+    window.history.replaceState({}, "", window.location.pathname);
+  }
+
   renderHoldings();
+  renderSectorAllocation();
+
+  // Collapsible toggles
+  document.querySelectorAll(".card-header--toggle").forEach(toggle => {
+    const panel = toggle.nextElementSibling;
+    if (panel && panel.classList.contains("collapsible")) {
+      toggle.addEventListener("click", () => {
+        toggle.classList.toggle("collapsed");
+        panel.classList.toggle("collapsed");
+      });
+    }
+  });
+
+  // Unified drilldown: Measure toggle (Invested / Current)
+  document.querySelectorAll("#measureToggle .toggle-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      drilldownState.measure = btn.dataset.measure;
+      document.querySelectorAll("#measureToggle .toggle-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      refreshUnifiedDrilldown();
+    });
+  });
+
+  // Unified drilldown: Dimension toggle (Sector / Stock)
+  document.querySelectorAll("#dimensionToggle .toggle-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      drilldownState.dimension = btn.dataset.dim;
+      document.querySelectorAll("#dimensionToggle .toggle-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      refreshUnifiedDrilldown();
+    });
+  });
+
+  // Sortable column headers
+  document.querySelectorAll("#holdings-table .sortable").forEach(th => {
+    th.addEventListener("click", (e) => {
+      e.stopPropagation();
+      sortHoldings(th.dataset.sort);
+    });
+  });
+
+  // Clear all filters button
+  const clearBtn = document.getElementById("clearFiltersBtn");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", clearAllFilters);
+  }
+
+  // Close dropdowns on outside click
+  document.addEventListener("click", () => {
+    document.querySelectorAll(".multi-select.open").forEach(ms => {
+      ms.classList.remove("open");
+    });
+  });
 });
