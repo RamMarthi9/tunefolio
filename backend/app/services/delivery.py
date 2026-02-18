@@ -37,7 +37,7 @@ def fetch_delivery_data(symbol: str, period_days: int = 365) -> list[dict]:
             "delivery_pct": delivery_pct
         })
 
-    # Sort by date ascending
-    results.sort(key=lambda x: x["date"])
+    # Sort by date ascending (parse "DD-Mon-YYYY" like "01-Dec-2025")
+    results.sort(key=lambda x: datetime.strptime(x["date"], "%d-%b-%Y"))
 
     return results
