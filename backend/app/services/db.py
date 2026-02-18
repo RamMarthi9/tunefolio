@@ -102,6 +102,18 @@ def get_active_access_token():
 
     return row["access_token"]
 
+def deactivate_all_sessions():
+    """Set is_active = 0 for all active sessions (logout)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE zerodha_sessions
+        SET is_active = 0
+        WHERE is_active = 1
+    """)
+    conn.commit()
+    conn.close()
+
 def init_holdings_snapshot_table():
     conn = get_connection()
     cursor = conn.cursor()

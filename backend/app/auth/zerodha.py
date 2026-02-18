@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from dotenv import load_dotenv
 from fastapi.responses import RedirectResponse
-from backend.app.services.db import save_zerodha_session
+from backend.app.services.db import save_zerodha_session, deactivate_all_sessions
 
 # Compute .env path relative to this file (backend/app/auth/ → backend/)
 _env_path = Path(__file__).resolve().parents[2] / ".env"
@@ -59,6 +59,11 @@ def zerodha_callback(request_token: str = Query(None)):
         url=f"{FRONTEND_URL}/?status=connected",
         status_code=302
     )
+
+@router.post("/logout")
+def zerodha_logout():
+    deactivate_all_sessions()
+    return {"status": "logged_out", "message": "Session deactivated"}
 
 @router.get("/login")
 def zerodha_login():

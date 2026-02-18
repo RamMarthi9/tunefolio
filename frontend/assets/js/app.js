@@ -18,6 +18,20 @@ async function fetchSectorAllocation() {
   return res.json();
 }
 
+async function logoutZerodha() {
+  try {
+    const res = await fetch(`${API_BASE}/auth/zerodha/logout`, { method: "POST" });
+    if (!res.ok) throw new Error("Logout failed");
+    const statusEl = document.getElementById("connection-status");
+    if (statusEl) {
+      statusEl.textContent = "\u25cf Disconnected";
+      statusEl.style.color = "#dc2626";
+    }
+  } catch (err) {
+    console.error("Logout error:", err);
+  }
+}
+
 /* ========================================
    Utilities
 ======================================== */
@@ -602,14 +616,19 @@ function renderHoldingsTable(data) {
     const invested = Number(h.invested_value || 0);
     const current = Number(h.current_value || 0);
     const pnl = Number(h.pnl || 0);
+    const isNSE = h.exchange === "NSE";
 
     const tr = document.createElement("tr");
+    tr.classList.add("holdings-row");
     const sectorLabel = h.sector || "\u2014";
     const sectorClass = h.sector
       ? "sector-pill sector-pill--clickable"
       : "sector-pill sector-unknown";
 
     tr.innerHTML = `
+      <td class="expand-cell">
+        ${isNSE ? '<button class="expand-btn" data-symbol="' + h.symbol + '" title="Show delivery volume">&#9654;</button>' : ''}
+      </td>
       <td class="symbol">${h.symbol}</td>
       <td><span class="${sectorClass}" data-sector="${h.sector || ""}">${sectorLabel}</span></td>
       <td>${h.quantity}</td>
@@ -633,6 +652,50 @@ function renderHoldingsTable(data) {
     }
 
     tbody.appendChild(tr);
+
+    // Delivery detail row (hidden by default) — only for NSE stocks
+    if (isNSE) {
+      const detailTr = document.createElement("tr");
+      detailTr.classList.add("delivery-detail-row", "hidden");
+      detailTr.id = `delivery-row-${h.symbol}`;
+      detailTr.innerHTML = `
+        <td colspan="9" class="delivery-chart-cell">
+          <div class="delivery-chart-wrapper">
+            <div class="delivery-chart-header">
+              <h4>Delivery Volume: ${h.symbol}</h4>
+              <div class="toggle-group" id="period-toggle-${h.symbol}">
+                <button class="toggle-btn" data-period="3m">3M</button>
+                <button class="toggle-btn" data-period="6m">6M</button>
+                <button class="toggle-btn active" data-period="1y">1Y</button>
+              </div>
+            </div>
+            <div class="delivery-chart-box">
+              <canvas id="deliveryChart-${h.symbol}"></canvas>
+            </div>
+            <div class="delivery-loading" id="delivery-loading-${h.symbol}">Loading delivery data...</div>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(detailTr);
+
+      // Wire expand button
+      const expandBtn = tr.querySelector(".expand-btn");
+      expandBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleDeliveryRow(h.symbol, expandBtn);
+      });
+
+      // Wire period toggles
+      detailTr.querySelectorAll(".toggle-btn").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const period = btn.dataset.period;
+          detailTr.querySelectorAll(".toggle-btn").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          loadDeliveryChart(h.symbol, period);
+        });
+      });
+    }
   });
 }
 
@@ -843,6 +906,154 @@ async function renderSectorAllocation() {
 }
 
 /* ========================================
+   Delivery Volume Chart
+======================================== */
+
+const deliveryCache = {};
+
+async function fetchDeliveryData(symbol, period = "1y") {
+  const cacheKey = `${symbol}_${period}`;
+  if (deliveryCache[cacheKey]) return deliveryCache[cacheKey];
+
+  const res = await fetch(`${API_BASE}/portfolio/delivery-data?symbol=${symbol}&period=${period}`);
+  if (!res.ok) throw new Error(`Failed to fetch delivery data for ${symbol}`);
+  const json = await res.json();
+  deliveryCache[cacheKey] = json.data;
+  return json.data;
+}
+
+function toggleDeliveryRow(symbol, expandBtn) {
+  const detailRow = document.getElementById(`delivery-row-${symbol}`);
+  if (!detailRow) return;
+
+  const isHidden = detailRow.classList.contains("hidden");
+  detailRow.classList.toggle("hidden");
+  expandBtn.classList.toggle("expanded", isHidden);
+
+  if (isHidden) {
+    loadDeliveryChart(symbol, "1y");
+  }
+}
+
+async function loadDeliveryChart(symbol, period) {
+  const loadingEl = document.getElementById(`delivery-loading-${symbol}`);
+  const canvasId = `deliveryChart-${symbol}`;
+
+  if (loadingEl) {
+    loadingEl.textContent = "Loading delivery data...";
+    loadingEl.style.display = "block";
+  }
+
+  try {
+    const data = await fetchDeliveryData(symbol, period);
+    if (loadingEl) loadingEl.style.display = "none";
+
+    if (!data || data.length === 0) {
+      if (loadingEl) {
+        loadingEl.textContent = "No delivery data available";
+        loadingEl.style.display = "block";
+      }
+      return;
+    }
+
+    renderDeliveryChart(canvasId, data, symbol);
+  } catch (err) {
+    console.error(`Delivery data error for ${symbol}:`, err);
+    if (loadingEl) {
+      loadingEl.textContent = "Failed to load delivery data";
+      loadingEl.style.display = "block";
+    }
+  }
+}
+
+function renderDeliveryChart(canvasId, data, symbol) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  if (chartRegistry[canvasId]) {
+    chartRegistry[canvasId].destroy();
+  }
+
+  const labels = data.map(d => d.date);
+  const deliveredQty = data.map(d => d.delivered_qty);
+  const notDeliveredQty = data.map(d => d.not_delivered_qty);
+
+  chartRegistry[canvasId] = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: "Delivered",
+          data: deliveredQty,
+          backgroundColor: "#16a34a",
+          borderWidth: 0
+        },
+        {
+          label: "Not Delivered",
+          data: notDeliveredQty,
+          backgroundColor: "#f59e0b",
+          borderWidth: 0
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      scales: {
+        x: {
+          stacked: true,
+          grid: { color: "rgba(255,255,255,0.05)" },
+          ticks: {
+            color: "#9ca3af",
+            font: { size: 8 },
+            maxRotation: 45,
+            maxTicksLimit: 30
+          }
+        },
+        y: {
+          stacked: true,
+          grid: { color: "rgba(255,255,255,0.05)" },
+          ticks: {
+            color: "#9ca3af",
+            font: { size: 9 },
+            callback: (v) => v >= 1000000
+              ? (v / 1000000).toFixed(1) + "M"
+              : v >= 1000
+                ? (v / 1000).toFixed(0) + "K"
+                : v
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          display: true,
+          labels: { color: "#e5e7eb", font: { size: 10 } }
+        },
+        datalabels: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const idx = ctx.dataIndex;
+              const total = (deliveredQty[idx] || 0) + (notDeliveredQty[idx] || 0);
+              const pct = total > 0 ? ((ctx.parsed.y / total) * 100).toFixed(1) : 0;
+              return `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString("en-IN")} (${pct}%)`;
+            },
+            afterBody: (tooltipItems) => {
+              const idx = tooltipItems[0].dataIndex;
+              const total = (deliveredQty[idx] || 0) + (notDeliveredQty[idx] || 0);
+              return `Total traded: ${total.toLocaleString("en-IN")}`;
+            }
+          }
+        }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+}
+
+/* ========================================
    Bootstrap (ORDER MATTERS)
 ======================================== */
 
@@ -907,6 +1118,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const clearBtn = document.getElementById("clearFiltersBtn");
   if (clearBtn) {
     clearBtn.addEventListener("click", clearAllFilters);
+  }
+
+  // Logout button
+  const logoutBtn = document.getElementById("logoutBtn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", logoutZerodha);
   }
 
   // Close dropdowns on outside click

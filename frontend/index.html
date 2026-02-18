@@ -26,6 +26,7 @@
         <div class="status">
             <span id="connection-status">● Connected to Zerodha</span>
             <span id="last-sync">Last sync: --</span>
+            <button class="logout-btn" id="logoutBtn" title="Disconnect from Zerodha">Logout</button>
         </div>
     </header>
 
@@ -139,6 +140,7 @@
                     <table id="holdings-table">
                         <thead>
                             <tr>
+                                <th style="width:30px;"></th>
                                 <th>Stock</th>
                                 <th class="sortable" data-sort="sector">Sector <span class="sort-icon"></span></th>
                                 <th>Qty</th>
@@ -171,12 +173,12 @@
                                         <div class="multi-select-dropdown"></div>
                                     </div>
                                 </th>
-                                <th colspan="6"></th>
+                                <th colspan="7"></th>
                             </tr>
                         </thead>
                         <tbody id="holdings-body">
                             <tr>
-                                <td colspan="8" class="loading">Loading holdings…</td>
+                                <td colspan="9" class="loading">Loading holdings…</td>
                             </tr>
                         </tbody>
                     </table>

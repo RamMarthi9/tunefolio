@@ -145,3 +145,25 @@ def sector_allocation():
         "by_current_value": by_current_value,
         "by_invested_value": by_invested_value
     }
+
+@router.get("/delivery-data")
+def delivery_data(symbol: str, period: str = "1y"):
+    """
+    Fetch delivery volume data for a single NSE stock via nselib.
+    """
+    from backend.app.services.delivery import fetch_delivery_data
+
+    period_map = {"1y": 365, "6m": 180, "3m": 90}
+    period_days = period_map.get(period, 365)
+
+    try:
+        data = fetch_delivery_data(symbol, period_days)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Delivery data unavailable for {symbol}: {e}")
+
+    return {
+        "symbol": symbol,
+        "period": period,
+        "count": len(data),
+        "data": data
+    }

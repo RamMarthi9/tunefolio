@@ -50,6 +50,24 @@ body {
     margin-right: 12px;
 }
 
+.logout-btn {
+    background: transparent;
+    border: 1px solid rgba(220, 38, 38, 0.3);
+    border-radius: 6px;
+    color: #f87171;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 12px;
+    margin-left: 12px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.logout-btn:hover {
+    background: rgba(220, 38, 38, 0.15);
+    border-color: #f87171;
+}
+
 /* =========================
    KPI Strip
 ========================= */
@@ -238,27 +256,32 @@ tbody td {
     white-space: nowrap;
 }
 
-/* Alignment — col 1 (Stock) and col 2 (Sector) left-aligned */
+/* Alignment — col 1 (expand) center, col 2 (Stock) and col 3 (Sector) left-aligned */
 th:nth-child(1),
-td:nth-child(1),
+td:nth-child(1) {
+    text-align: center;
+}
+
 th:nth-child(2),
-td:nth-child(2) {
+td:nth-child(2),
+th:nth-child(3),
+td:nth-child(3) {
     text-align: left;
 }
 
 /* Numeric columns right-aligned */
-th:nth-child(3),
 th:nth-child(4),
 th:nth-child(5),
 th:nth-child(6),
 th:nth-child(7),
 th:nth-child(8),
-td:nth-child(3),
+th:nth-child(9),
 td:nth-child(4),
 td:nth-child(5),
 td:nth-child(6),
 td:nth-child(7),
-td:nth-child(8) {
+td:nth-child(8),
+td:nth-child(9) {
     text-align: right;
 }
 
@@ -647,4 +670,89 @@ td:nth-child(8) {
         color: var(--muted);
         font-size: 11px;
     }
+}
+
+/* =========================
+   Delivery Volume Charts
+========================= */
+.expand-cell {
+    width: 30px;
+    text-align: center !important;
+    padding: 8px 4px !important;
+}
+
+.expand-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--muted);
+    font-size: 10px;
+    width: 22px;
+    height: 22px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s, border-color 0.2s, transform 0.2s;
+}
+
+.expand-btn:hover {
+    color: var(--text);
+    border-color: var(--text);
+}
+
+.expand-btn.expanded {
+    transform: rotate(90deg);
+    color: #a5b4fc;
+    border-color: #a5b4fc;
+}
+
+.delivery-detail-row.hidden {
+    display: none;
+}
+
+.delivery-chart-cell {
+    padding: 0 !important;
+    background: rgba(17, 24, 39, 0.5);
+    border-bottom: 1px solid var(--border);
+}
+
+.delivery-chart-wrapper {
+    padding: 12px 16px;
+}
+
+.delivery-chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.delivery-chart-header h4 {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.delivery-chart-box {
+    position: relative;
+    width: 100%;
+    height: 200px;
+}
+
+.delivery-chart-box canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.delivery-loading {
+    text-align: center;
+    padding: 20px;
+    color: var(--muted);
+    font-size: 12px;
 }
