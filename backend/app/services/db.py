@@ -63,17 +63,22 @@ def save_zerodha_session(user_id: str, access_token: str):
 
     return session_id
 
-def get_active_zerodha_session():
+def get_active_zerodha_session(session_id: str = None):
+    """Look up an active session by its cookie session_id."""
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT id, user_id, created_at, expires_at
-        FROM zerodha_sessions
-        WHERE is_active = 1
-        ORDER BY created_at DESC
-        LIMIT 1
-    """)
+    if session_id:
+        cursor.execute("""
+            SELECT id, user_id, created_at, expires_at
+            FROM zerodha_sessions
+            WHERE id = ? AND is_active = 1
+            LIMIT 1
+        """, (session_id,))
+    else:
+        # Fallback: no cookie provided — return nothing (forces login)
+        conn.close()
+        return None
 
     row = cursor.fetchone()
     conn.close()
@@ -88,17 +93,21 @@ def get_active_zerodha_session():
         "expires_at": row["expires_at"]
     }
 
-def get_active_access_token():
+def get_active_access_token(session_id: str = None):
+    """Get the Zerodha access_token for a specific session cookie."""
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT access_token
-        FROM zerodha_sessions
-        WHERE is_active = 1
-        ORDER BY created_at DESC
-        LIMIT 1
-    """)
+    if session_id:
+        cursor.execute("""
+            SELECT access_token
+            FROM zerodha_sessions
+            WHERE id = ? AND is_active = 1
+            LIMIT 1
+        """, (session_id,))
+    else:
+        conn.close()
+        return None
 
     row = cursor.fetchone()
     conn.close()
@@ -108,8 +117,20 @@ def get_active_access_token():
 
     return row["access_token"]
 
+def deactivate_session(session_id: str):
+    """Deactivate a single session by its ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE zerodha_sessions
+        SET is_active = 0
+        WHERE id = ?
+    """, (session_id,))
+    conn.commit()
+    conn.close()
+
 def deactivate_all_sessions():
-    """Set is_active = 0 for all active sessions (logout)."""
+    """Set is_active = 0 for all active sessions (admin/cleanup)."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""

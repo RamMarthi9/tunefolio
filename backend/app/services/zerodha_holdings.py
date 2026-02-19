@@ -4,19 +4,22 @@ import requests
 from fastapi import HTTPException
 from backend.app.services.db import get_active_access_token, save_holdings_snapshot
 
-# In-memory cache: avoids duplicate Zerodha API calls within the same page load
-_holdings_cache = {"data": None, "timestamp": 0}
-CACHE_TTL = 30  # seconds — holdings don't change faster than this
+# Per-session cache: keyed by session_id so different users don't share data
+_holdings_cache = {}
+CACHE_TTL = 30  # seconds
 
 
-def fetch_zerodha_holdings():
+def fetch_zerodha_holdings(session_id: str = None):
     now = time.time()
 
-    # Return cached data if fresh
-    if _holdings_cache["data"] and (now - _holdings_cache["timestamp"]) < CACHE_TTL:
-        return _holdings_cache["data"]
+    # Return cached data if fresh (per session)
+    cache_key = session_id or "__global__"
+    if cache_key in _holdings_cache:
+        entry = _holdings_cache[cache_key]
+        if entry["data"] and (now - entry["timestamp"]) < CACHE_TTL:
+            return entry["data"]
 
-    access_token = get_active_access_token()
+    access_token = get_active_access_token(session_id)
 
     if not access_token:
         raise HTTPException(
@@ -46,8 +49,7 @@ def fetch_zerodha_holdings():
     # Persist snapshot
     save_holdings_snapshot(holdings)
 
-    # Update cache
-    _holdings_cache["data"] = holdings
-    _holdings_cache["timestamp"] = now
+    # Update per-session cache
+    _holdings_cache[cache_key] = {"data": holdings, "timestamp": now}
 
     return holdings

@@ -6,8 +6,10 @@ const API_BASE = window.location.hostname === "127.0.0.1" || window.location.hos
    Fetch helpers
 ======================================== */
 
+const FETCH_OPTS = { credentials: "include" };
+
 async function fetchHoldings() {
-  const res = await fetch(`${API_BASE}/portfolio/holdings`);
+  const res = await fetch(`${API_BASE}/portfolio/holdings`, FETCH_OPTS);
   if (!res.ok) throw new Error("Failed to load holdings");
   return res.json();
 }
@@ -17,7 +19,9 @@ async function fetchHoldings() {
 
 async function logoutZerodha() {
   try {
-    const res = await fetch(`${API_BASE}/auth/zerodha/logout`, { method: "POST" });
+    const res = await fetch(`${API_BASE}/auth/zerodha/logout`, {
+      method: "POST", credentials: "include"
+    });
     if (!res.ok) throw new Error("Logout failed");
     // Redirect to login after logout
     window.location.href = `${API_BASE}/auth/zerodha/login`;
@@ -1129,7 +1133,7 @@ async function fetchDeliveryData(symbol, period = "1y") {
   const cacheKey = `${symbol}_${period}`;
   if (deliveryCache[cacheKey]) return deliveryCache[cacheKey];
 
-  const res = await fetch(`${API_BASE}/portfolio/delivery-data?symbol=${symbol}&period=${period}`);
+  const res = await fetch(`${API_BASE}/portfolio/delivery-data?symbol=${symbol}&period=${period}`, FETCH_OPTS);
   if (!res.ok) throw new Error(`Failed to fetch delivery data for ${symbol}`);
   const json = await res.json();
   deliveryCache[cacheKey] = json.data;
@@ -1315,7 +1319,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   } else {
     // Check for active session — redirect to Zerodha login if none
     try {
-      const sessionRes = await fetch(`${API_BASE}/session/active`);
+      const sessionRes = await fetch(`${API_BASE}/session/active`, FETCH_OPTS);
       if (!sessionRes.ok) {
         window.location.href = `${API_BASE}/auth/zerodha/login`;
         return; // Stop bootstrap — page is redirecting
@@ -1399,4 +1403,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       ms.classList.remove("open");
     });
   });
+
+  // Session security: The tf_session cookie has no Max-Age/Expires,
+  // making it a browser-session cookie. When the browser is fully closed:
+  //   1. Cookie is automatically deleted by the browser
+  //   2. Next visit has no cookie -> /session/active returns 404 -> redirect to login
+  // This provides auto-logout on browser close without any JS needed.
 });

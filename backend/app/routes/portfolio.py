@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from backend.app.services.zerodha_holdings import fetch_zerodha_holdings
 from backend.app.services.db import (
@@ -12,12 +12,13 @@ from backend.app.services.db import get_connection
 router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
 
 @router.get("/overview")
-def portfolio_overview():
+def portfolio_overview(request: Request):
     """
     Portfolio summary (Phase 1)
     """
+    session_id = request.cookies.get("tf_session")
     try:
-        holdings = fetch_zerodha_holdings()
+        holdings = fetch_zerodha_holdings(session_id)
     except Exception as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -36,9 +37,10 @@ def portfolio_overview():
     }
 
 @router.get("/holdings")
-def portfolio_holdings():
+def portfolio_holdings(request: Request):
+    session_id = request.cookies.get("tf_session")
     try:
-        holdings = fetch_zerodha_holdings()
+        holdings = fetch_zerodha_holdings(session_id)
     except Exception as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -90,15 +92,16 @@ def portfolio_holdings():
     }
 
 @router.get("/sector-allocation")
-def sector_allocation():
+def sector_allocation(request: Request):
     """
     Aggregated sector allocation — uses live holdings enriched with sector data.
     Falls back to snapshot data only if live fetch fails.
     """
+    session_id = request.cookies.get("tf_session")
 
     # --- Primary path: compute from live holdings (always fresh) ---
     try:
-        holdings = fetch_zerodha_holdings()
+        holdings = fetch_zerodha_holdings(session_id)
         upsert_instruments_from_holdings(holdings)
 
         sector_map = {}
@@ -221,18 +224,18 @@ def delivery_data(symbol: str, period: str = "1y"):
 
 
 @router.post("/delivery-data/sync")
-def sync_delivery_data(period: str = "1y"):
+def sync_delivery_data(request: Request, period: str = "1y"):
     """
     Sync delivery data for ALL holdings from NSE into DB cache.
     Call this from local machine daily (NSE blocks cloud IPs).
-
-    Usage: POST /portfolio/delivery-data/sync?period=1y
     """
     from backend.app.services.delivery import fetch_and_cache_delivery
 
+    session_id = request.cookies.get("tf_session")
+
     # Get all unique NSE symbols from current holdings
     try:
-        holdings = fetch_zerodha_holdings()
+        holdings = fetch_zerodha_holdings(session_id)
     except Exception:
         raise HTTPException(status_code=401, detail="No active Zerodha session")
 

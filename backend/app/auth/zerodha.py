@@ -2,12 +2,12 @@ import os
 import requests
 import hashlib
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response, Request
 from dotenv import load_dotenv
 from fastapi.responses import RedirectResponse
-from backend.app.services.db import save_zerodha_session, deactivate_all_sessions
+from backend.app.services.db import save_zerodha_session, deactivate_session
 
-# Compute .env path relative to this file (backend/app/auth/ → backend/)
+# Compute .env path relative to this file (backend/app/auth/ -> backend/)
 _env_path = Path(__file__).resolve().parents[2] / ".env"
 load_dotenv(dotenv_path=_env_path)
 
@@ -23,7 +23,7 @@ def zerodha_callback(request_token: str = Query(None)):
     if not request_token:
         raise HTTPException(status_code=400, detail="Missing request token")
 
-    # ✅ Generate checksum (CRITICAL)
+    # Generate checksum
     checksum = hashlib.sha256(
         f"{KITE_API_KEY}{request_token}{KITE_API_SECRET}".encode()
     ).hexdigest()
@@ -49,21 +49,39 @@ def zerodha_callback(request_token: str = Query(None)):
     user_id = data["user_id"]
     access_token = data["access_token"]
 
-    # ✅ Save token securely in SQLite
-    save_zerodha_session(
+    # Save session and get back the session_id
+    session_id = save_zerodha_session(
         user_id=user_id,
         access_token=access_token
     )
 
-    return RedirectResponse(
+    # Set session cookie and redirect to frontend
+    redirect = RedirectResponse(
         url=f"{FRONTEND_URL}/?status=connected",
         status_code=302
     )
+    # Session cookie: no Max-Age/Expires = browser-session cookie (deleted on browser close)
+    redirect.set_cookie(
+        key="tf_session",
+        value=session_id,
+        httponly=True,
+        samesite="lax",
+        secure=FRONTEND_URL.startswith("https"),
+        path="/"
+    )
+    return redirect
+
 
 @router.post("/logout")
-def zerodha_logout():
-    deactivate_all_sessions()
-    return {"status": "logged_out", "message": "Session deactivated"}
+def zerodha_logout(request: Request):
+    session_id = request.cookies.get("tf_session")
+    if session_id:
+        deactivate_session(session_id)
+
+    resp = Response(content='{"status":"logged_out"}', media_type="application/json")
+    resp.delete_cookie("tf_session", path="/")
+    return resp
+
 
 @router.get("/login")
 def zerodha_login():
