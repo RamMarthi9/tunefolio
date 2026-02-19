@@ -1,6 +1,6 @@
 # TuneFolio
 
-**Equity with Ease**
+**Observe. Tune. Invest.**
 
 TuneFolio is a **read-only portfolio intelligence platform** that helps investors
 understand *why* their portfolio behaves the way it does — using secure,
@@ -8,6 +8,12 @@ consent-based integration with Zerodha.
 
 It focuses on **explainability, context, and historical insight**, not trading,
 predictions, or execution.
+
+Investing isn’t just about markets — it’s about mastering your own thinking patterns, understanding how you respond to volatility, taking right risks at the right time, knowing and tuning yourself with the markets both for a resonant profit and upcoming opportunities that suit your style. 
+
+TuneFolio gives you clarity into your portfolio’s behavior, sector exposure, capital allocation, and time-based performance. No noise. No predictions. Just structured intelligence about how you invest. Observe your decisions. Tune your strategy. Invest with conviction. 
+
+TuneFolio is portfolio intelligence — clean, structured, and personal. Because wealth isn’t just built by markets. It’s built by understanding how you invest and taking the right risks that suit you. The beta version of TuneFolio is coming soon — be among the first to experience portfolio intelligence, redefined.
 
 ---
 
@@ -19,6 +25,7 @@ TuneFolio is built to answer:
 - Why did my portfolio perform this way?
 - Which decisions contributed to gains or losses?
 - How has my portfolio evolved over time?
+- How are the volumes of a particular stock in last couple of weeks? or Last quarter? or last 6 months?
 
 ### Core Focus
 - Time-aware portfolio analysis (SoD / EoD snapshots)
@@ -126,3 +133,5 @@ TuneFolio is an **explainability layer**, not a trading terminal.
 
 TuneFolio aims to become a **personal investment memory system** —
 a place where data explains decisions, not just outcomes.
+
+

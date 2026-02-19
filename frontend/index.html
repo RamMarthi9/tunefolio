@@ -19,8 +19,7 @@
     ========================== -->
     <header class="app-header">
         <div class="brand">
-            <h1>TuneFolio</h1>
-            <span class="subtitle">Portfolio Intelligence</span>
+            <img src="assets/img/logo.svg" alt="TuneFolio" class="brand-logo" />
         </div>
 
         <div class="status">
@@ -141,7 +140,7 @@
                         <thead>
                             <tr>
                                 <th style="width:30px;"></th>
-                                <th>Stock</th>
+                                <th class="sortable" data-sort="symbol">Stock <span class="sort-icon"></span></th>
                                 <th class="sortable" data-sort="sector">Sector <span class="sort-icon"></span></th>
                                 <th>Qty</th>
                                 <th>Avg Buy</th>
@@ -151,6 +150,7 @@
                                 <th class="sortable" data-sort="pnl">P&amp;L <span class="sort-icon"></span></th>
                             </tr>
                             <tr class="filter-row">
+                                <th></th>
                                 <th>
                                     <div class="multi-select" id="stock-multiselect">
                                         <div class="multi-select-display" tabindex="0">
@@ -173,7 +173,7 @@
                                         <div class="multi-select-dropdown"></div>
                                     </div>
                                 </th>
-                                <th colspan="7"></th>
+                                <th colspan="6"></th>
                             </tr>
                         </thead>
                         <tbody id="holdings-body">

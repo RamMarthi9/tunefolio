@@ -315,9 +315,9 @@ function renderPnlBar(canvasId, dataset) {
       },
       scales: {
         x: {
-          grid: { color: "rgba(255,255,255,0.05)" },
+          grid: { color: "rgba(0,0,0,0.06)" },
           ticks: {
-            color: "#9ca3af",
+            color: "#64748b",
             font: { size: 9 },
             callback: (v) => "\u20B9" + Number(v).toLocaleString("en-IN")
           }
@@ -325,7 +325,7 @@ function renderPnlBar(canvasId, dataset) {
         y: {
           grid: { display: false },
           ticks: {
-            color: "#e5e7eb",
+            color: "#334155",
             font: { size: 9 }
           }
         }
@@ -442,9 +442,9 @@ function renderDrilldownBar(canvasId, measure, dimension) {
       },
       scales: {
         x: {
-          grid: { color: "rgba(255,255,255,0.05)" },
+          grid: { color: "rgba(0,0,0,0.06)" },
           ticks: {
-            color: "#9ca3af",
+            color: "#64748b",
             font: { size: 9 },
             callback: (v) => "\u20B9" + Number(v).toLocaleString("en-IN")
           }
@@ -452,7 +452,7 @@ function renderDrilldownBar(canvasId, measure, dimension) {
         y: {
           grid: { display: false },
           ticks: {
-            color: "#e5e7eb",
+            color: "#334155",
             font: { size: dimension === "stock" ? 8 : 9 }
           }
         }
@@ -712,7 +712,7 @@ function getFilteredAndSorted() {
       let valA = a[key];
       let valB = b[key];
 
-      if (key === "sector") {
+      if (key === "sector" || key === "symbol") {
         valA = (valA || "zzz").toLowerCase();
         valB = (valB || "zzz").toLowerCase();
         return currentSort.dir === "asc"
@@ -734,7 +734,7 @@ function sortHoldings(key) {
     currentSort.dir = currentSort.dir === "asc" ? "desc" : "asc";
   } else {
     currentSort.key = key;
-    currentSort.dir = key === "sector" ? "asc" : "desc";
+    currentSort.dir = (key === "sector" || key === "symbol") ? "asc" : "desc";
   }
 
   renderHoldingsTable(getFilteredAndSorted());
@@ -1004,9 +1004,9 @@ function renderDeliveryChart(canvasId, data, symbol) {
       scales: {
         x: {
           stacked: true,
-          grid: { color: "rgba(255,255,255,0.05)" },
+          grid: { color: "rgba(0,0,0,0.06)" },
           ticks: {
-            color: "#9ca3af",
+            color: "#64748b",
             font: { size: 8 },
             maxRotation: 45,
             maxTicksLimit: 30
@@ -1014,9 +1014,9 @@ function renderDeliveryChart(canvasId, data, symbol) {
         },
         y: {
           stacked: true,
-          grid: { color: "rgba(255,255,255,0.05)" },
+          grid: { color: "rgba(0,0,0,0.06)" },
           ticks: {
-            color: "#9ca3af",
+            color: "#64748b",
             font: { size: 9 },
             callback: (v) => v >= 1000000
               ? (v / 1000000).toFixed(1) + "M"
@@ -1029,7 +1029,7 @@ function renderDeliveryChart(canvasId, data, symbol) {
       plugins: {
         legend: {
           display: true,
-          labels: { color: "#e5e7eb", font: { size: 10 } }
+          labels: { color: "#334155", font: { size: 10 } }
         },
         datalabels: { display: false },
         tooltip: {
