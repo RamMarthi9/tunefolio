@@ -22,11 +22,8 @@ async function logoutZerodha() {
   try {
     const res = await fetch(`${API_BASE}/auth/zerodha/logout`, { method: "POST" });
     if (!res.ok) throw new Error("Logout failed");
-    const statusEl = document.getElementById("connection-status");
-    if (statusEl) {
-      statusEl.textContent = "\u25cf Disconnected";
-      statusEl.style.color = "#dc2626";
-    }
+    // Redirect to login after logout
+    window.location.href = `${API_BASE}/auth/zerodha/login`;
   } catch (err) {
     console.error("Logout error:", err);
   }
@@ -1057,7 +1054,7 @@ function renderDeliveryChart(canvasId, data, symbol) {
    Bootstrap (ORDER MATTERS)
 ======================================== */
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   // Detect auth success redirect (?status=connected)
   const params = new URLSearchParams(window.location.search);
   if (params.get("status") === "connected") {
@@ -1068,6 +1065,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     // Clean up URL (remove query param without page reload)
     window.history.replaceState({}, "", window.location.pathname);
+  } else {
+    // Check for active session — redirect to Zerodha login if none
+    try {
+      const sessionRes = await fetch(`${API_BASE}/session/active`);
+      if (!sessionRes.ok) {
+        window.location.href = `${API_BASE}/auth/zerodha/login`;
+        return; // Stop bootstrap — page is redirecting
+      }
+    } catch (err) {
+      console.error("Session check failed:", err);
+      window.location.href = `${API_BASE}/auth/zerodha/login`;
+      return;
+    }
   }
 
   renderHoldings();

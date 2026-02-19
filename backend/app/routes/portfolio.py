@@ -92,12 +92,62 @@ def portfolio_holdings():
 @router.get("/sector-allocation")
 def sector_allocation():
     """
-    Aggregated sector allocation
-    - Current value
-    - Invested value
-    - P&L
+    Aggregated sector allocation — uses live holdings enriched with sector data.
+    Falls back to snapshot data only if live fetch fails.
     """
 
+    # --- Primary path: compute from live holdings (always fresh) ---
+    try:
+        holdings = fetch_zerodha_holdings()
+        upsert_instruments_from_holdings(holdings)
+
+        sector_map = {}
+        for h in holdings:
+            instrument = get_instrument(h["tradingsymbol"], h["exchange"])
+            sector = instrument["sector"] if instrument and instrument["sector"] else None
+
+            if not sector:
+                enrich_instrument_if_missing(h["tradingsymbol"], h["exchange"])
+                instrument = get_instrument(h["tradingsymbol"], h["exchange"])
+                sector = instrument["sector"] if instrument and instrument["sector"] else "Unknown"
+
+            if sector not in sector_map:
+                sector_map[sector] = {"current": 0, "invested": 0, "pnl": 0}
+
+            invested = h["average_price"] * h["quantity"]
+            current = h["last_price"] * h["quantity"]
+            sector_map[sector]["invested"] += invested
+            sector_map[sector]["current"] += current
+            sector_map[sector]["pnl"] += current - invested
+
+        total_current = sum(v["current"] for v in sector_map.values()) or 1
+        total_invested = sum(v["invested"] for v in sector_map.values()) or 1
+
+        by_current_value = []
+        by_invested_value = []
+
+        for sector, v in sector_map.items():
+            by_current_value.append({
+                "sector": sector,
+                "value": round(v["current"], 2),
+                "percentage": round((v["current"] / total_current) * 100, 2),
+                "profit": round(v["pnl"], 2)
+            })
+            by_invested_value.append({
+                "sector": sector,
+                "value": round(v["invested"], 2),
+                "percentage": round((v["invested"] / total_invested) * 100, 2)
+            })
+
+        return {
+            "by_current_value": by_current_value,
+            "by_invested_value": by_invested_value
+        }
+
+    except Exception:
+        pass  # Fall through to snapshot-based approach
+
+    # --- Fallback: snapshot-based (if live fails) ---
     conn = get_connection()
     cursor = conn.cursor()
 
