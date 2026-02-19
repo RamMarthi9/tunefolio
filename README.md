@@ -104,20 +104,7 @@ TuneFolio is an **explainability layer**, not a trading terminal.
 
 ## Architecture (Current)
 
-### Frontend
-- Static HTML/CSS/JS
-- API-driven design
-- Suitable for GitHub Pages hosting
-
-### Backend
-- FastAPI (Python)
-- Zerodha OAuth integration
-- SQLite (current) with a clear path to MySQL/Postgres
-- Modular services:
-  - Authentication
-  - Holdings
-  - Instruments
-  - Portfolio intelligence
+![TuneFolio Architecture](https://github.com/RamMarthi9/tunefolio/blob/9b6ecbb7f13cdce4cb58910f701387b017782298/Architecture.jpg)
 
 ---
 
