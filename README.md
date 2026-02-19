@@ -16,6 +16,7 @@ TuneFolio gives you clarity into your portfolio’s behavior, sector exposure, c
 TuneFolio is portfolio intelligence — clean, structured, and personal. Because wealth isn’t just built by markets. It’s built by understanding how you invest and taking the right risks that suit you. The beta version of TuneFolio is coming soon — be among the first to experience portfolio intelligence, redefined.
 
 ---
+[The Core Idea Link](https://www.youtube.com/watch?v=Ec75hA47hck)
 ![TuneFolio](https://github.com/RamMarthi9/tunefolio/blob/23abb313606952db7aadafaa97098b1e5c1234d6/TuneFolioLogo.png)
 
 ## Vision
@@ -39,7 +40,6 @@ TuneFolio is built to answer:
 - Historical context over point-in-time noise
 
 ---
-[The Core Idea](https://www.youtube.com/watch?v=Ec75hA47hck)
 
 ## What TuneFolio Does Today
 
