@@ -47,7 +47,7 @@ TuneFolio is built to answer:
 - Read-only access (no trading, no execution)
 - Active session management
 
-![Portfolio View](https://github.com/RamMarthi9/tunefolio/blob/23abb313606952db7aadafaa97098b1e5c1234d6/TF1.jpg)
+![Portfolio View](https://github.com/RamMarthi9/tunefolio/blob/857c5506452f09e92f10301b2b7ca7c16c07c541/TF1.jpg)
 ### Portfolio Overview
 - Live holdings with:
   - Quantity
