@@ -378,10 +378,20 @@ def create_delivery_cache_table():
             not_delivered_qty INTEGER DEFAULT 0,
             delivery_pct REAL DEFAULT 0,
             price_up INTEGER DEFAULT 1,
+            close_price REAL DEFAULT 0,
+            open_price REAL DEFAULT 0,
+            high_price REAL DEFAULT 0,
+            low_price REAL DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (symbol, trade_date)
         )
     """)
+    # Add OHLC columns if table already exists (migration for existing DBs)
+    for col in ["close_price", "open_price", "high_price", "low_price"]:
+        try:
+            cursor.execute(f"ALTER TABLE delivery_cache ADD COLUMN {col} REAL DEFAULT 0")
+        except Exception:
+            pass  # Column already exists
     conn.commit()
     conn.close()
 
@@ -406,8 +416,9 @@ def save_delivery_cache(symbol: str, records: list):
         cursor.execute("""
             INSERT OR REPLACE INTO delivery_cache
                 (symbol, trade_date, total_traded_qty, delivered_qty,
-                 not_delivered_qty, delivery_pct, price_up)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 not_delivered_qty, delivery_pct, price_up,
+                 close_price, open_price, high_price, low_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             symbol,
             iso_date,
@@ -415,7 +426,11 @@ def save_delivery_cache(symbol: str, records: list):
             r.get("delivered_qty", 0),
             r.get("not_delivered_qty", 0),
             r.get("delivery_pct", 0),
-            1 if r.get("price_up", True) else 0
+            1 if r.get("price_up", True) else 0,
+            r.get("close_price", 0),
+            r.get("open_price", 0),
+            r.get("high_price", 0),
+            r.get("low_price", 0)
         ))
     conn.commit()
     conn.close()
@@ -428,7 +443,8 @@ def get_delivery_cache(symbol: str, period_days: int = 365) -> list:
     cursor = conn.cursor()
     cursor.execute("""
         SELECT trade_date, total_traded_qty, delivered_qty,
-               not_delivered_qty, delivery_pct, price_up
+               not_delivered_qty, delivery_pct, price_up,
+               close_price, open_price, high_price, low_price
         FROM delivery_cache
         WHERE symbol = ?
           AND trade_date >= date('now', ?)
@@ -450,6 +466,10 @@ def get_delivery_cache(symbol: str, period_days: int = 365) -> list:
             "delivered_qty": row["delivered_qty"],
             "not_delivered_qty": row["not_delivered_qty"],
             "delivery_pct": row["delivery_pct"],
-            "price_up": bool(row["price_up"])
+            "price_up": bool(row["price_up"]),
+            "close_price": row["close_price"] or 0,
+            "open_price": row["open_price"] or 0,
+            "high_price": row["high_price"] or 0,
+            "low_price": row["low_price"] or 0
         })
     return results

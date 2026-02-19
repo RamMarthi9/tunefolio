@@ -881,12 +881,15 @@ function renderHoldingsTable(data) {
         <td colspan="9" class="delivery-chart-cell">
           <div class="delivery-chart-wrapper">
             <div class="delivery-chart-header">
-              <h4>Delivery Volume: ${h.symbol}</h4>
+              <h4>${h.symbol}</h4>
               <div class="toggle-group" id="period-toggle-${h.symbol}">
                 <button class="toggle-btn" data-period="3m">3M</button>
                 <button class="toggle-btn" data-period="6m">6M</button>
                 <button class="toggle-btn active" data-period="1y">1Y</button>
               </div>
+            </div>
+            <div class="price-chart-box">
+              <canvas id="priceChart-${h.symbol}"></canvas>
             </div>
             <div class="delivery-chart-box">
               <canvas id="deliveryChart-${h.symbol}"></canvas>
@@ -1155,7 +1158,8 @@ function toggleDeliveryRow(symbol, expandBtn) {
 
 async function loadDeliveryChart(symbol, period) {
   const loadingEl = document.getElementById(`delivery-loading-${symbol}`);
-  const canvasId = `deliveryChart-${symbol}`;
+  const deliveryCanvasId = `deliveryChart-${symbol}`;
+  const priceCanvasId = `priceChart-${symbol}`;
   const periodLabel = period === "1y" ? "1 year" : period === "6m" ? "6 months" : "3 months";
 
   if (loadingEl) {
@@ -1168,11 +1172,10 @@ async function loadDeliveryChart(symbol, period) {
     if (loadingEl) loadingEl.style.display = "none";
 
     if (!data || data.length === 0) {
-      // Destroy any existing chart
-      if (chartRegistry[canvasId]) {
-        chartRegistry[canvasId].destroy();
-        delete chartRegistry[canvasId];
-      }
+      // Destroy existing charts
+      [deliveryCanvasId, priceCanvasId].forEach(id => {
+        if (chartRegistry[id]) { chartRegistry[id].destroy(); delete chartRegistry[id]; }
+      });
       if (loadingEl) {
         loadingEl.textContent = `Data not available for last ${periodLabel}`;
         loadingEl.style.display = "block";
@@ -1180,7 +1183,8 @@ async function loadDeliveryChart(symbol, period) {
       return;
     }
 
-    renderDeliveryChart(canvasId, data, symbol);
+    renderPriceLineChart(priceCanvasId, data, symbol);
+    renderDeliveryChart(deliveryCanvasId, data, symbol);
   } catch (err) {
     console.error(`Delivery data error for ${symbol}:`, err);
     if (loadingEl) {
@@ -1188,6 +1192,80 @@ async function loadDeliveryChart(symbol, period) {
       loadingEl.style.display = "block";
     }
   }
+}
+
+function renderPriceLineChart(canvasId, data, symbol) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  if (chartRegistry[canvasId]) {
+    chartRegistry[canvasId].destroy();
+  }
+
+  const labels = data.map(d => d.date);
+  const closePrices = data.map(d => d.close_price || 0);
+
+  // Skip if no price data
+  if (closePrices.every(p => p === 0)) {
+    canvas.parentElement.style.display = "none";
+    return;
+  }
+  canvas.parentElement.style.display = "block";
+
+  // Color gradient: green if overall up, red if down
+  const firstPrice = closePrices.find(p => p > 0) || 0;
+  const lastPrice = closePrices[closePrices.length - 1] || 0;
+  const isUp = lastPrice >= firstPrice;
+  const lineColor = isUp ? "#16a34a" : "#dc2626";
+  const fillColor = isUp ? "rgba(22, 163, 106, 0.08)" : "rgba(220, 38, 38, 0.08)";
+
+  chartRegistry[canvasId] = new Chart(canvas, {
+    type: "line",
+    data: {
+      labels: labels,
+      datasets: [{
+        label: "Close Price",
+        data: closePrices,
+        borderColor: lineColor,
+        backgroundColor: fillColor,
+        borderWidth: 1.5,
+        pointRadius: 0,
+        pointHitRadius: 6,
+        tension: 0.3,
+        fill: true
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      scales: {
+        x: {
+          display: false // Hide x-axis — delivery chart below shares the same dates
+        },
+        y: {
+          position: "right",
+          grid: { color: "rgba(0,0,0,0.04)" },
+          ticks: {
+            color: "#64748b",
+            font: { size: 9 },
+            callback: (v) => "\u20B9" + Number(v).toLocaleString("en-IN")
+          }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        datalabels: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => items[0].label,
+            label: (ctx) => `Close: \u20B9${ctx.parsed.y.toLocaleString("en-IN")}`
+          }
+        }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
 }
 
 function renderDeliveryChart(canvasId, data, symbol) {

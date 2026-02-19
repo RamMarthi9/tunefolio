@@ -5,10 +5,28 @@ import pandas as pd
 from backend.app.services.db import save_delivery_cache, get_delivery_cache
 
 
+def _safe_float(val) -> float:
+    """Convert a value to float, stripping commas from string representations."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return 0.0
+    if isinstance(val, str):
+        return float(val.replace(",", ""))
+    return float(val)
+
+
+def _safe_int(val) -> int:
+    """Convert a value to int, stripping commas from string representations."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return 0
+    if isinstance(val, str):
+        return int(float(val.replace(",", "")))
+    return int(val)
+
+
 def fetch_delivery_from_nse(symbol: str, period_days: int = 365) -> list[dict]:
     """
-    Fetch delivery volume data from NSE via nselib.
-    Returns list of dicts with price direction.
+    Fetch delivery volume + price data from NSE via nselib.
+    Returns list of dicts with price direction and OHLC prices.
     Returns empty list on any failure (NSE blocks cloud IPs, rate limits, etc.)
     """
     end_date = datetime.now()
@@ -30,13 +48,17 @@ def fetch_delivery_from_nse(symbol: str, period_days: int = 365) -> list[dict]:
     results = []
     for _, row in df.iterrows():
         try:
-            total_traded = int(row["TotalTradedQuantity"]) if pd.notna(row.get("TotalTradedQuantity")) else 0
-            delivered = int(row["DeliverableQty"]) if pd.notna(row.get("DeliverableQty")) else 0
+            total_traded = _safe_int(row.get("TotalTradedQuantity", 0))
+            delivered = _safe_int(row.get("DeliverableQty", 0))
             not_delivered = max(total_traded - delivered, 0)
-            delivery_pct = round(float(row["%DlyQttoTradedQty"]), 2) if pd.notna(row.get("%DlyQttoTradedQty")) else 0
+            delivery_pct = round(_safe_float(row.get("%DlyQttoTradedQty", 0)), 2)
 
-            close_price = float(row["ClosePrice"]) if pd.notna(row.get("ClosePrice")) else 0
-            prev_close = float(row["PrevClose"]) if pd.notna(row.get("PrevClose")) else 0
+            close_price = _safe_float(row.get("ClosePrice", 0))
+            prev_close = _safe_float(row.get("PrevClose", 0))
+            open_price = _safe_float(row.get("OpenPrice", 0))
+            high_price = _safe_float(row.get("HighPrice", 0))
+            low_price = _safe_float(row.get("LowPrice", 0))
+
             price_up = close_price >= prev_close
 
             results.append({
@@ -45,7 +67,11 @@ def fetch_delivery_from_nse(symbol: str, period_days: int = 365) -> list[dict]:
                 "delivered_qty": delivered,
                 "not_delivered_qty": not_delivered,
                 "delivery_pct": delivery_pct,
-                "price_up": price_up
+                "price_up": price_up,
+                "close_price": close_price,
+                "open_price": open_price,
+                "high_price": high_price,
+                "low_price": low_price
             })
         except (ValueError, KeyError, TypeError):
             continue

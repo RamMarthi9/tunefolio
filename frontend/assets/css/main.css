@@ -785,6 +785,21 @@ td:nth-child(9) {
     letter-spacing: 0.05em;
 }
 
+.price-chart-box {
+    position: relative;
+    width: 100%;
+    height: 120px;
+    margin-bottom: 0;
+}
+
+.price-chart-box canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100% !important;
+    height: 100% !important;
+}
+
 .delivery-chart-box {
     position: relative;
     width: 100%;
