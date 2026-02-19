@@ -65,10 +65,8 @@ const globalFilter = {
   stocks: []
 };
 
-const drilldownState = {
-  measure: "invested",
-  dimension: "sector"
-};
+const pnlState = { dimension: "sector" };
+const valueState = { dimension: "sector" };
 
 /* ========================================
    Global Filter Helpers
@@ -265,28 +263,82 @@ function renderPie(canvasId, fullDataset) {
 }
 
 /* ========================================
-   P&L Bar Chart Rendering (with click)
+   P&L Bar Chart Rendering (Sector/Stock + auto drill-down)
 ======================================== */
 
-function renderPnlBar(canvasId, dataset) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas || !Array.isArray(dataset) || dataset.length === 0) return;
-
-  if (chartRegistry[canvasId]) {
-    chartRegistry[canvasId].destroy();
+function buildPnlDataset(dimension) {
+  // Auto drill-down: if exactly 1 sector selected, show stocks within it
+  if (globalFilter.sectors.length === 1 && dimension === "sector") {
+    const selectedSector = globalFilter.sectors[0];
+    const stocksInSector = holdingsData.filter(h => h.sector === selectedSector);
+    if (stocksInSector.length > 0) {
+      return {
+        isDrilldown: true,
+        data: stocksInSector.map(h => ({
+          label: h.symbol,
+          pnl: Number(h.pnl || 0)
+        })).sort((a, b) => b.pnl - a.pnl)
+      };
+    }
   }
 
-  const labels = dataset.map(d => d.sector);
-  const values = dataset.map(d => d.profit);
+  if (dimension === "stock") {
+    const filtered = getGloballyFilteredHoldings();
+    return {
+      isDrilldown: false,
+      data: filtered.map(h => ({
+        label: h.symbol,
+        pnl: Number(h.pnl || 0)
+      })).sort((a, b) => b.pnl - a.pnl)
+    };
+  }
+
+  // Sector level from sector alloc data
+  const filteredAlloc = getGloballyFilteredSectorAlloc();
+  if (!filteredAlloc.by_current_value) return { isDrilldown: false, data: [] };
+
+  return {
+    isDrilldown: false,
+    data: filteredAlloc.by_current_value.map(d => ({
+      label: d.sector,
+      pnl: d.profit
+    })).sort((a, b) => b.pnl - a.pnl)
+  };
+}
+
+function renderPnlBar(canvasId, dimension) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  const { isDrilldown, data: dataset } = buildPnlDataset(dimension);
+  if (dataset.length === 0) {
+    if (chartRegistry[canvasId]) { chartRegistry[canvasId].destroy(); delete chartRegistry[canvasId]; }
+    return;
+  }
+
+  if (chartRegistry[canvasId]) { chartRegistry[canvasId].destroy(); }
+
+  const labels = dataset.map(d => d.label);
+  const values = dataset.map(d => d.pnl);
   const colors = values.map((v, i) => {
     const base = v >= 0 ? "#16a34a" : "#dc2626";
-    // Dim non-selected sectors
-    if (globalFilter.sectors.length > 0 &&
-        !globalFilter.sectors.includes(dataset[i].sector)) {
+    if (!isDrilldown && dimension === "sector" && globalFilter.sectors.length > 0 &&
+        !globalFilter.sectors.includes(dataset[i].label)) {
+      return base + "40";
+    }
+    if (dimension === "stock" && globalFilter.stocks.length > 0 &&
+        !globalFilter.stocks.includes(dataset[i].label)) {
       return base + "40";
     }
     return base;
   });
+
+  // Dynamic height
+  const boxEl = canvas.parentElement;
+  if (boxEl) {
+    const dynamicH = Math.max(200, dataset.length * 22);
+    boxEl.style.height = dynamicH + "px";
+  }
 
   chartRegistry[canvasId] = new Chart(canvas, {
     type: "bar",
@@ -296,7 +348,7 @@ function renderPnlBar(canvasId, dataset) {
         data: values,
         backgroundColor: colors,
         borderRadius: 3,
-        barThickness: 14
+        barThickness: dimension === "stock" || isDrilldown ? 10 : 14
       }]
     },
     options: {
@@ -308,7 +360,12 @@ function renderPnlBar(canvasId, dataset) {
       onClick: (event, elements) => {
         if (elements.length === 0) return;
         const idx = elements[0].index;
-        toggleGlobalSectorFilter(dataset[idx].sector);
+        const clickedLabel = labels[idx];
+        if (isDrilldown || dimension === "stock") {
+          toggleGlobalStockFilter(clickedLabel);
+        } else {
+          toggleGlobalSectorFilter(clickedLabel);
+        }
       },
       scales: {
         x: {
@@ -323,7 +380,7 @@ function renderPnlBar(canvasId, dataset) {
           grid: { display: false },
           ticks: {
             color: "#334155",
-            font: { size: 9 }
+            font: { size: dimension === "stock" || isDrilldown ? 8 : 9 }
           }
         }
       },
@@ -341,72 +398,93 @@ function renderPnlBar(canvasId, dataset) {
   });
 }
 
-/* ========================================
-   Unified Drilldown Bar Chart (with click)
-======================================== */
-
-function buildDrilldownDataset(measure, dimension) {
-  const filteredAlloc = getGloballyFilteredSectorAlloc();
-
-  if (dimension === "sector") {
-    const source = measure === "invested"
-      ? filteredAlloc.by_invested_value
-      : filteredAlloc.by_current_value;
-    if (!source) return [];
-    return source.map(d => ({
-      label: d.sector,
-      value: d.value
-    })).sort((a, b) => b.value - a.value);
-  }
-
-  // Stock-level: from filtered holdings
-  const filtered = getGloballyFilteredHoldings();
-  if (filtered.length === 0) return [];
-
-  return filtered.map(h => ({
-    label: h.symbol,
-    value: Number(measure === "invested" ? h.invested_value : h.current_value) || 0
-  })).sort((a, b) => b.value - a.value);
+function refreshPnlChart() {
+  renderPnlBar("sectorPnlChart", pnlState.dimension);
 }
 
-function renderDrilldownBar(canvasId, measure, dimension) {
+/* ========================================
+   Value Compare Grouped Bar Chart (Invested + Current)
+======================================== */
+
+function buildValueCompareDataset(dimension) {
+  // Auto drill-down: if exactly 1 sector selected, show stocks within it
+  if (globalFilter.sectors.length === 1 && dimension === "sector") {
+    const selectedSector = globalFilter.sectors[0];
+    const stocksInSector = holdingsData.filter(h => h.sector === selectedSector);
+    if (stocksInSector.length > 0) {
+      return {
+        isDrilldown: true,
+        data: stocksInSector.map(h => ({
+          label: h.symbol,
+          invested: Number(h.invested_value || 0),
+          current: Number(h.current_value || 0)
+        })).sort((a, b) => b.current - a.current)
+      };
+    }
+  }
+
+  if (dimension === "stock") {
+    const filtered = getGloballyFilteredHoldings();
+    return {
+      isDrilldown: false,
+      data: filtered.map(h => ({
+        label: h.symbol,
+        invested: Number(h.invested_value || 0),
+        current: Number(h.current_value || 0)
+      })).sort((a, b) => b.current - a.current)
+    };
+  }
+
+  // Sector-level
+  const filteredAlloc = getGloballyFilteredSectorAlloc();
+  if (!filteredAlloc.by_current_value) return { isDrilldown: false, data: [] };
+
+  const investedMap = {};
+  (filteredAlloc.by_invested_value || []).forEach(d => { investedMap[d.sector] = d.value; });
+
+  return {
+    isDrilldown: false,
+    data: filteredAlloc.by_current_value.map(d => ({
+      label: d.sector,
+      invested: investedMap[d.sector] || 0,
+      current: d.value
+    })).sort((a, b) => b.current - a.current)
+  };
+}
+
+function renderValueCompareBar(canvasId, dimension) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
 
-  const dataset = buildDrilldownDataset(measure, dimension);
+  const { isDrilldown, data: dataset } = buildValueCompareDataset(dimension);
   if (dataset.length === 0) {
-    if (chartRegistry[canvasId]) {
-      chartRegistry[canvasId].destroy();
-      delete chartRegistry[canvasId];
-    }
+    if (chartRegistry[canvasId]) { chartRegistry[canvasId].destroy(); delete chartRegistry[canvasId]; }
     return;
   }
 
-  if (chartRegistry[canvasId]) {
-    chartRegistry[canvasId].destroy();
-  }
+  if (chartRegistry[canvasId]) { chartRegistry[canvasId].destroy(); }
 
   const labels = dataset.map(d => d.label);
-  const values = dataset.map(d => d.value);
-  const baseColor = measure === "invested" ? "#6366f1" : "#22d3ee";
+  const investedValues = dataset.map(d => d.invested);
+  const currentValues = dataset.map(d => d.current);
+  const isStock = dimension === "stock" || isDrilldown;
 
-  // Dim non-selected items
-  const colors = dataset.map(d => {
-    if (dimension === "sector" && globalFilter.sectors.length > 0 &&
-        !globalFilter.sectors.includes(d.label)) {
-      return baseColor + "40";
-    }
+  // Dimming helpers
+  function dimColor(base, label) {
+    if (!isDrilldown && dimension === "sector" && globalFilter.sectors.length > 0 &&
+        !globalFilter.sectors.includes(label)) return base + "40";
     if (dimension === "stock" && globalFilter.stocks.length > 0 &&
-        !globalFilter.stocks.includes(d.label)) {
-      return baseColor + "40";
-    }
-    return baseColor;
-  });
+        !globalFilter.stocks.includes(label)) return base + "40";
+    return base;
+  }
 
-  // Dynamic height for many items
+  const investedColors = dataset.map(d => dimColor("#6366f1", d.label));
+  const currentColors = dataset.map(d => dimColor("#22d3ee", d.label));
+
+  // Dynamic height
   const boxEl = canvas.parentElement;
   if (boxEl) {
-    const dynamicH = Math.max(260, dataset.length * 20);
+    const dynamicH = Math.max(260, dataset.length * 28);
     boxEl.style.height = dynamicH + "px";
   }
 
@@ -414,12 +492,22 @@ function renderDrilldownBar(canvasId, measure, dimension) {
     type: "bar",
     data: {
       labels: labels,
-      datasets: [{
-        data: values,
-        backgroundColor: colors,
-        borderRadius: 3,
-        barThickness: dimension === "stock" ? 10 : 14
-      }]
+      datasets: [
+        {
+          label: "Invested",
+          data: investedValues,
+          backgroundColor: investedColors,
+          borderRadius: 3,
+          barThickness: isStock ? 8 : 12
+        },
+        {
+          label: "Current",
+          data: currentValues,
+          backgroundColor: currentColors,
+          borderRadius: 3,
+          barThickness: isStock ? 8 : 12
+        }
+      ]
     },
     options: {
       responsive: true,
@@ -431,10 +519,10 @@ function renderDrilldownBar(canvasId, measure, dimension) {
         if (elements.length === 0) return;
         const idx = elements[0].index;
         const clickedLabel = labels[idx];
-        if (dimension === "sector") {
-          toggleGlobalSectorFilter(clickedLabel);
-        } else {
+        if (isDrilldown || dimension === "stock") {
           toggleGlobalStockFilter(clickedLabel);
+        } else {
+          toggleGlobalSectorFilter(clickedLabel);
         }
       },
       scales: {
@@ -450,18 +538,21 @@ function renderDrilldownBar(canvasId, measure, dimension) {
           grid: { display: false },
           ticks: {
             color: "#334155",
-            font: { size: dimension === "stock" ? 8 : 9 }
+            font: { size: isStock ? 8 : 9 }
           }
         }
       },
       plugins: {
-        legend: { display: false },
+        legend: {
+          display: true,
+          position: "top",
+          labels: { color: "#334155", font: { size: 10 }, boxWidth: 12 }
+        },
         datalabels: { display: false },
         tooltip: {
           callbacks: {
             label: (ctx) => {
-              const lbl = measure === "invested" ? "Invested" : "Current";
-              return `${lbl}: \u20B9${ctx.parsed.x.toLocaleString("en-IN")}`;
+              return `${ctx.dataset.label}: \u20B9${ctx.parsed.x.toLocaleString("en-IN")}`;
             }
           }
         }
@@ -471,8 +562,8 @@ function renderDrilldownBar(canvasId, measure, dimension) {
   });
 }
 
-function refreshUnifiedDrilldown() {
-  renderDrilldownBar("unifiedDrilldownChart", drilldownState.measure, drilldownState.dimension);
+function refreshValueCompare() {
+  renderValueCompareBar("valueCompareChart", valueState.dimension);
 }
 
 /* ========================================
@@ -801,12 +892,12 @@ function applyGlobalFilter() {
     renderPie("sectorCurrentChart", sectorAllocData.by_current_value);
     renderPie("sectorInvestedChart", sectorAllocData.by_invested_value);
 
-    // P&L bar: always show full dataset (dimming handled inside renderPnlBar)
-    renderPnlBar("sectorPnlChart", sectorAllocData.by_current_value);
+    // P&L bar: supports sector/stock + auto drill-down
+    refreshPnlChart();
   }
 
-  // 6. Unified drilldown: uses filtered data via buildDrilldownDataset
-  refreshUnifiedDrilldown();
+  // 6. Value compare grouped bar
+  refreshValueCompare();
 }
 
 /* ========================================
@@ -868,8 +959,11 @@ async function renderHoldings() {
       dropdownsInitialized = true;
     }
 
-    // Refresh drilldown if sector data already loaded
-    if (sectorAllocData) refreshUnifiedDrilldown();
+    // Refresh charts if sector data already loaded
+    if (sectorAllocData) {
+      refreshPnlChart();
+      refreshValueCompare();
+    }
 
     console.log("KPIs updated successfully");
 
@@ -891,11 +985,8 @@ async function renderSectorAllocation() {
       renderPie("sectorInvestedChart", data.by_invested_value);
     }
 
-    if (data?.by_current_value?.length) {
-      renderPnlBar("sectorPnlChart", data.by_current_value);
-    }
-
-    refreshUnifiedDrilldown();
+    refreshPnlChart();
+    refreshValueCompare();
 
   } catch (err) {
     console.error("Sector allocation error:", err);
@@ -1094,25 +1185,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Unified drilldown: Measure toggle (Invested / Current)
-  document.querySelectorAll("#measureToggle .toggle-btn").forEach(btn => {
+  // P&L chart: Sector/Stock dimension toggle
+  document.querySelectorAll("#pnlDimToggle .toggle-btn").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      drilldownState.measure = btn.dataset.measure;
-      document.querySelectorAll("#measureToggle .toggle-btn").forEach(b => b.classList.remove("active"));
+      pnlState.dimension = btn.dataset.dim;
+      document.querySelectorAll("#pnlDimToggle .toggle-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
-      refreshUnifiedDrilldown();
+      refreshPnlChart();
     });
   });
 
-  // Unified drilldown: Dimension toggle (Sector / Stock)
-  document.querySelectorAll("#dimensionToggle .toggle-btn").forEach(btn => {
+  // Value compare chart: Sector/Stock dimension toggle
+  document.querySelectorAll("#valueDimToggle .toggle-btn").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      drilldownState.dimension = btn.dataset.dim;
-      document.querySelectorAll("#dimensionToggle .toggle-btn").forEach(b => b.classList.remove("active"));
+      valueState.dimension = btn.dataset.dim;
+      document.querySelectorAll("#valueDimToggle .toggle-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
-      refreshUnifiedDrilldown();
+      refreshValueCompare();
     });
   });
 

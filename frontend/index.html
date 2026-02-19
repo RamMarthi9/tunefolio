@@ -19,7 +19,8 @@
     ========================== -->
     <header class="app-header">
         <div class="brand">
-            <img src="assets/img/logo.svg" alt="TuneFolio" class="brand-logo" />
+            <h1>TuneFolio</h1>
+            <span class="subtitle">Portfolio Intelligence</span>
         </div>
 
         <div class="status">
@@ -89,31 +90,31 @@
                         </div>
                     </div>
 
-                    <!-- P&L Bar -->
+                    <!-- P&L Bar with Sector/Stock toggle -->
                     <div class="sector-chart sector-chart--bar">
-                        <h4>P&amp;L by Sector</h4>
+                        <div class="drilldown-header">
+                            <h4>P&amp;L</h4>
+                            <div class="toggle-group" id="pnlDimToggle">
+                                <button class="toggle-btn active" data-dim="sector">Sector</button>
+                                <button class="toggle-btn" data-dim="stock">Stock</button>
+                            </div>
+                        </div>
                         <div class="chart-box">
                             <canvas id="sectorPnlChart"></canvas>
                         </div>
                     </div>
 
-                    <!-- Unified Drilldown Bar -->
+                    <!-- Grouped Bar: Invested + Current Value -->
                     <div class="sector-chart sector-chart--drilldown">
                         <div class="drilldown-header">
-                            <h4>Breakdown</h4>
-                            <div class="drilldown-toggles">
-                                <div class="toggle-group" id="measureToggle">
-                                    <button class="toggle-btn active" data-measure="invested">Invested</button>
-                                    <button class="toggle-btn" data-measure="current">Current</button>
-                                </div>
-                                <div class="toggle-group" id="dimensionToggle">
-                                    <button class="toggle-btn active" data-dim="sector">Sector</button>
-                                    <button class="toggle-btn" data-dim="stock">Stock</button>
-                                </div>
+                            <h4>Invested vs Current</h4>
+                            <div class="toggle-group" id="valueDimToggle">
+                                <button class="toggle-btn active" data-dim="sector">Sector</button>
+                                <button class="toggle-btn" data-dim="stock">Stock</button>
                             </div>
                         </div>
                         <div class="chart-box chart-box--drilldown">
-                            <canvas id="unifiedDrilldownChart"></canvas>
+                            <canvas id="valueCompareChart"></canvas>
                         </div>
                     </div>
                 </div>

@@ -45,9 +45,6 @@ body {
 .brand-logo {
     height: 52px;
     width: auto;
-    /* Feathered / blended edges */
-    mask-image: radial-gradient(ellipse 95% 90% at center, black 60%, transparent 100%);
-    -webkit-mask-image: radial-gradient(ellipse 95% 90% at center, black 60%, transparent 100%);
 }
 
 .brand h1 {
@@ -577,7 +574,8 @@ td:nth-child(9) {
 }
 
 .sector-chart--bar {
-    max-width: 360px;
+    max-width: none;
+    min-width: 300px;
 }
 
 .sector-chart h4 {
