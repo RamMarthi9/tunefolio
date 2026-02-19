@@ -200,6 +200,7 @@ def sector_allocation():
 def delivery_data(symbol: str, period: str = "1y"):
     """
     Fetch delivery volume data for a single NSE stock via nselib.
+    Returns empty data array (not error) if unavailable.
     """
     from backend.app.services.delivery import fetch_delivery_data
 
@@ -208,8 +209,8 @@ def delivery_data(symbol: str, period: str = "1y"):
 
     try:
         data = fetch_delivery_data(symbol, period_days)
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Delivery data unavailable for {symbol}: {e}")
+    except Exception:
+        data = []
 
     return {
         "symbol": symbol,

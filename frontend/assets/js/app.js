@@ -1026,6 +1026,7 @@ function toggleDeliveryRow(symbol, expandBtn) {
 async function loadDeliveryChart(symbol, period) {
   const loadingEl = document.getElementById(`delivery-loading-${symbol}`);
   const canvasId = `deliveryChart-${symbol}`;
+  const periodLabel = period === "1y" ? "1 year" : period === "6m" ? "6 months" : "3 months";
 
   if (loadingEl) {
     loadingEl.textContent = "Loading delivery data...";
@@ -1037,8 +1038,13 @@ async function loadDeliveryChart(symbol, period) {
     if (loadingEl) loadingEl.style.display = "none";
 
     if (!data || data.length === 0) {
+      // Destroy any existing chart
+      if (chartRegistry[canvasId]) {
+        chartRegistry[canvasId].destroy();
+        delete chartRegistry[canvasId];
+      }
       if (loadingEl) {
-        loadingEl.textContent = "No delivery data available";
+        loadingEl.textContent = `Data not available for last ${periodLabel}`;
         loadingEl.style.display = "block";
       }
       return;
@@ -1048,7 +1054,7 @@ async function loadDeliveryChart(symbol, period) {
   } catch (err) {
     console.error(`Delivery data error for ${symbol}:`, err);
     if (loadingEl) {
-      loadingEl.textContent = "Failed to load delivery data";
+      loadingEl.textContent = `Data not available for last ${periodLabel}`;
       loadingEl.style.display = "block";
     }
   }
@@ -1066,6 +1072,16 @@ function renderDeliveryChart(canvasId, data, symbol) {
   const deliveredQty = data.map(d => d.delivered_qty);
   const notDeliveredQty = data.map(d => d.not_delivered_qty);
 
+  // Color per bar based on price direction:
+  // Green day (price up): dark green delivered, light green settled
+  // Red day (price down): red delivered, light red settled
+  const deliveredColors = data.map(d =>
+    d.price_up ? "#15803d" : "#dc2626"       // dark green / red
+  );
+  const settledColors = data.map(d =>
+    d.price_up ? "#86efac" : "#fca5a5"       // light green / light red
+  );
+
   chartRegistry[canvasId] = new Chart(canvas, {
     type: "bar",
     data: {
@@ -1074,13 +1090,13 @@ function renderDeliveryChart(canvasId, data, symbol) {
         {
           label: "Delivered",
           data: deliveredQty,
-          backgroundColor: "#16a34a",
+          backgroundColor: deliveredColors,
           borderWidth: 0
         },
         {
-          label: "Not Delivered",
+          label: "Settled (Not Delivered)",
           data: notDeliveredQty,
-          backgroundColor: "#f59e0b",
+          backgroundColor: settledColors,
           borderWidth: 0
         }
       ]
@@ -1117,11 +1133,25 @@ function renderDeliveryChart(canvasId, data, symbol) {
       plugins: {
         legend: {
           display: true,
-          labels: { color: "#334155", font: { size: 10 } }
+          labels: {
+            color: "#334155",
+            font: { size: 10 },
+            generateLabels: () => [
+              { text: "Delivered (price up)", fillStyle: "#15803d", strokeStyle: "transparent", lineWidth: 0 },
+              { text: "Settled (price up)", fillStyle: "#86efac", strokeStyle: "transparent", lineWidth: 0 },
+              { text: "Delivered (price down)", fillStyle: "#dc2626", strokeStyle: "transparent", lineWidth: 0 },
+              { text: "Settled (price down)", fillStyle: "#fca5a5", strokeStyle: "transparent", lineWidth: 0 }
+            ]
+          }
         },
         datalabels: { display: false },
         tooltip: {
           callbacks: {
+            title: (tooltipItems) => {
+              const idx = tooltipItems[0].dataIndex;
+              const dir = data[idx].price_up ? "\u25B2 Up" : "\u25BC Down";
+              return `${labels[idx]}  (${dir})`;
+            },
             label: (ctx) => {
               const idx = ctx.dataIndex;
               const total = (deliveredQty[idx] || 0) + (notDeliveredQty[idx] || 0);
