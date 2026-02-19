@@ -1,8 +1,14 @@
 import sqlite3
+import shutil
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parents[2] / "data" / "tunefolio.db"
+SEED_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "tunefolio.seed.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)  # Ensure data/ dir exists (for Render deploys)
+
+# On Render (ephemeral filesystem), restore from seed if DB doesn't exist
+if not DB_PATH.exists() and SEED_DB_PATH.exists():
+    shutil.copy2(SEED_DB_PATH, DB_PATH)
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH)
@@ -337,3 +343,92 @@ def update_instrument_sector(symbol, exchange, sector, industry):
     conn.close()
 
 
+# ─── Delivery Data Cache ───────────────────────────────────────────
+
+def create_delivery_cache_table():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS delivery_cache (
+            symbol TEXT NOT NULL,
+            trade_date TEXT NOT NULL,
+            total_traded_qty INTEGER DEFAULT 0,
+            delivered_qty INTEGER DEFAULT 0,
+            not_delivered_qty INTEGER DEFAULT 0,
+            delivery_pct REAL DEFAULT 0,
+            price_up INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (symbol, trade_date)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def _normalize_date_to_iso(date_str: str) -> str:
+    """Convert DD-Mon-YYYY (e.g. '21-Nov-2025') to YYYY-MM-DD for SQLite."""
+    from datetime import datetime as _dt
+    try:
+        return _dt.strptime(date_str, "%d-%b-%Y").strftime("%Y-%m-%d")
+    except ValueError:
+        return date_str  # Already ISO or unknown format
+
+
+def save_delivery_cache(symbol: str, records: list):
+    """Upsert delivery records for a symbol into cache. Dates stored as ISO."""
+    if not records:
+        return
+    conn = get_connection()
+    cursor = conn.cursor()
+    for r in records:
+        iso_date = _normalize_date_to_iso(r["date"])
+        cursor.execute("""
+            INSERT OR REPLACE INTO delivery_cache
+                (symbol, trade_date, total_traded_qty, delivered_qty,
+                 not_delivered_qty, delivery_pct, price_up)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            symbol,
+            iso_date,
+            r.get("total_traded_qty", 0),
+            r.get("delivered_qty", 0),
+            r.get("not_delivered_qty", 0),
+            r.get("delivery_pct", 0),
+            1 if r.get("price_up", True) else 0
+        ))
+    conn.commit()
+    conn.close()
+
+
+def get_delivery_cache(symbol: str, period_days: int = 365) -> list:
+    """Read cached delivery data for a symbol within the given period."""
+    from datetime import datetime as _dt
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT trade_date, total_traded_qty, delivered_qty,
+               not_delivered_qty, delivery_pct, price_up
+        FROM delivery_cache
+        WHERE symbol = ?
+          AND trade_date >= date('now', ?)
+        ORDER BY trade_date ASC
+    """, (symbol, f"-{period_days} days"))
+    rows = cursor.fetchall()
+    conn.close()
+
+    results = []
+    for row in rows:
+        # Convert ISO date back to DD-Mon-YYYY for frontend display
+        try:
+            display_date = _dt.strptime(row["trade_date"], "%Y-%m-%d").strftime("%d-%b-%Y")
+        except ValueError:
+            display_date = row["trade_date"]
+        results.append({
+            "date": display_date,
+            "total_traded_qty": row["total_traded_qty"],
+            "delivered_qty": row["delivered_qty"],
+            "not_delivered_qty": row["not_delivered_qty"],
+            "delivery_pct": row["delivery_pct"],
+            "price_up": bool(row["price_up"])
+        })
+    return results

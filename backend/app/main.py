@@ -10,7 +10,7 @@ _env_path = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(dotenv_path=_env_path)
 
 from backend.app.auth.zerodha import router as zerodha_auth_router
-from backend.app.services.db import init_db, init_holdings_snapshot_table
+from backend.app.services.db import init_db, init_holdings_snapshot_table, create_delivery_cache_table
 from backend.app.services.sessions import router as session_router
 from backend.app.services.holdings import router as holdings_router
 from backend.app.services.db import create_instruments_table
@@ -47,6 +47,7 @@ def startup_event():
     init_db()
     init_holdings_snapshot_table()
     create_instruments_table()
+    create_delivery_cache_table()
 
 @app.get("/api/health")
 def health_check():

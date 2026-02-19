@@ -199,8 +199,8 @@ def sector_allocation():
 @router.get("/delivery-data")
 def delivery_data(symbol: str, period: str = "1y"):
     """
-    Fetch delivery volume data for a single NSE stock via nselib.
-    Returns empty data array (not error) if unavailable.
+    Fetch delivery volume data for a single NSE stock.
+    Serves from DB cache (populated by sync). Falls back to live NSE if cache empty.
     """
     from backend.app.services.delivery import fetch_delivery_data
 
@@ -217,4 +217,43 @@ def delivery_data(symbol: str, period: str = "1y"):
         "period": period,
         "count": len(data),
         "data": data
+    }
+
+
+@router.post("/delivery-data/sync")
+def sync_delivery_data(period: str = "1y"):
+    """
+    Sync delivery data for ALL holdings from NSE into DB cache.
+    Call this from local machine daily (NSE blocks cloud IPs).
+
+    Usage: POST /portfolio/delivery-data/sync?period=1y
+    """
+    from backend.app.services.delivery import fetch_and_cache_delivery
+
+    # Get all unique NSE symbols from current holdings
+    try:
+        holdings = fetch_zerodha_holdings()
+    except Exception:
+        raise HTTPException(status_code=401, detail="No active Zerodha session")
+
+    period_map = {"1y": 365, "6m": 180, "3m": 90}
+    period_days = period_map.get(period, 365)
+
+    nse_symbols = list(set(
+        h["tradingsymbol"] for h in holdings
+        if h.get("exchange") == "NSE"
+    ))
+
+    results = {}
+    for sym in nse_symbols:
+        try:
+            data = fetch_and_cache_delivery(sym, period_days)
+            results[sym] = len(data)
+        except Exception as e:
+            results[sym] = f"error: {str(e)}"
+
+    return {
+        "synced": len(nse_symbols),
+        "period": period,
+        "results": results
     }
