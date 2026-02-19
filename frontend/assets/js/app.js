@@ -835,7 +835,6 @@ function renderHoldingsTable(data) {
     const invested = Number(h.invested_value || 0);
     const current = Number(h.current_value || 0);
     const pnl = Number(h.pnl || 0);
-    const isNSE = h.exchange === "NSE";
 
     const tr = document.createElement("tr");
     tr.classList.add("holdings-row");
@@ -846,7 +845,7 @@ function renderHoldingsTable(data) {
 
     tr.innerHTML = `
       <td class="expand-cell">
-        ${isNSE ? '<button class="expand-btn" data-symbol="' + h.symbol + '" title="Show delivery volume">&#9654;</button>' : ''}
+        <button class="expand-btn" data-symbol="${h.symbol}" title="Show delivery volume">&#9654;</button>
       </td>
       <td class="symbol">${h.symbol}</td>
       <td><span class="${sectorClass}" data-sector="${h.sector || ""}">${sectorLabel}</span></td>
@@ -872,8 +871,8 @@ function renderHoldingsTable(data) {
 
     tbody.appendChild(tr);
 
-    // Delivery detail row (hidden by default) — only for NSE stocks
-    if (isNSE) {
+    // Delivery detail row (hidden by default)
+    {
       const detailTr = document.createElement("tr");
       detailTr.classList.add("delivery-detail-row", "hidden");
       detailTr.id = `delivery-row-${h.symbol}`;

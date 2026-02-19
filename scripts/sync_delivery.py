@@ -32,14 +32,12 @@ from backend.app.services.db import (
 from backend.app.services.delivery import fetch_and_cache_delivery
 
 
-def get_nse_symbols_from_db():
-    """Get all NSE symbols from the instruments table."""
+def get_all_symbols_from_db():
+    """Get all unique symbols from the instruments table (any exchange).
+    NSE delivery data may exist even for stocks Zerodha lists as BSE."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT DISTINCT symbol FROM instruments
-        WHERE exchange = 'NSE'
-    """)
+    cursor.execute("SELECT DISTINCT symbol FROM instruments")
     rows = cursor.fetchall()
     conn.close()
     return [row["symbol"] for row in rows]
@@ -57,14 +55,14 @@ def main():
     # Ensure table exists
     create_delivery_cache_table()
 
-    # Get symbols
-    symbols = get_nse_symbols_from_db()
+    # Get symbols (all exchanges — NSE data may exist for BSE-listed stocks too)
+    symbols = get_all_symbols_from_db()
     if not symbols:
-        print("No NSE symbols found in instruments table.")
+        print("No symbols found in instruments table.")
         print("Login to Zerodha first to populate holdings.")
         return
 
-    print(f"Syncing delivery data for {len(symbols)} NSE symbols ({args.period})...")
+    print(f"Syncing delivery data for {len(symbols)} symbols ({args.period})...")
     print("=" * 60)
 
     success = 0

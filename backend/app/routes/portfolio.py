@@ -233,7 +233,8 @@ def sync_delivery_data(request: Request, period: str = "1y"):
 
     session_id = request.cookies.get("tf_session")
 
-    # Get all unique NSE symbols from current holdings
+    # Get all unique symbols from current holdings (any exchange —
+    # NSE delivery data may exist even for BSE-listed stocks)
     try:
         holdings = fetch_zerodha_holdings(session_id)
     except Exception:
@@ -242,13 +243,10 @@ def sync_delivery_data(request: Request, period: str = "1y"):
     period_map = {"1y": 365, "6m": 180, "3m": 90}
     period_days = period_map.get(period, 365)
 
-    nse_symbols = list(set(
-        h["tradingsymbol"] for h in holdings
-        if h.get("exchange") == "NSE"
-    ))
+    all_symbols = list(set(h["tradingsymbol"] for h in holdings))
 
     results = {}
-    for sym in nse_symbols:
+    for sym in all_symbols:
         try:
             data = fetch_and_cache_delivery(sym, period_days)
             results[sym] = len(data)
@@ -256,7 +254,7 @@ def sync_delivery_data(request: Request, period: str = "1y"):
             results[sym] = f"error: {str(e)}"
 
     return {
-        "synced": len(nse_symbols),
+        "synced": len(all_symbols),
         "period": period,
         "results": results
     }
