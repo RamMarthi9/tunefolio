@@ -244,8 +244,61 @@ function renderNestedPie(metric) {
 
   const { grandTotal, sectors, sectorColorMap, outer, inner } = pieData;
 
-  // Build legend
-  renderNestedPieLegend(sectors, sectorColorMap, grandTotal);
+  // Custom plugin: draw leader lines from outer ring to outside labels
+  const outerLabelsPlugin = {
+    id: "outerLabelsPlugin",
+    afterDraw(chart) {
+      const ctx = chart.ctx;
+      const meta = chart.getDatasetMeta(0); // outer ring
+      if (!meta || !meta.data) return;
+
+      const centerX = chart.chartArea.left + (chart.chartArea.right - chart.chartArea.left) / 2;
+      const centerY = chart.chartArea.top + (chart.chartArea.bottom - chart.chartArea.top) / 2;
+
+      meta.data.forEach((arc, i) => {
+        const total = outer.values.reduce((s, v) => s + v, 0);
+        const pct = total ? (outer.values[i] / total) * 100 : 0;
+        if (pct < 3) return; // skip tiny slices
+
+        const midAngle = (arc.startAngle + arc.endAngle) / 2;
+        const outerRadius = arc.outerRadius;
+
+        // Point on the outer edge of the arc
+        const edgeX = centerX + Math.cos(midAngle) * outerRadius;
+        const edgeY = centerY + Math.sin(midAngle) * outerRadius;
+
+        // Extended point for the leader line elbow
+        const elbowLen = 16;
+        const elbowX = centerX + Math.cos(midAngle) * (outerRadius + elbowLen);
+        const elbowY = centerY + Math.sin(midAngle) * (outerRadius + elbowLen);
+
+        // Horizontal tail
+        const tailLen = 12;
+        const isRight = Math.cos(midAngle) >= 0;
+        const tailX = elbowX + (isRight ? tailLen : -tailLen);
+
+        const label = `${outer.labels[i]} ${pct.toFixed(1)}%`;
+
+        // Draw leader line
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(edgeX, edgeY);
+        ctx.lineTo(elbowX, elbowY);
+        ctx.lineTo(tailX, elbowY);
+        ctx.strokeStyle = "#64748b";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Draw label text
+        ctx.font = "600 10px system-ui, sans-serif";
+        ctx.fillStyle = "#334155";
+        ctx.textBaseline = "middle";
+        ctx.textAlign = isRight ? "left" : "right";
+        ctx.fillText(label, tailX + (isRight ? 4 : -4), elbowY);
+        ctx.restore();
+      });
+    }
+  };
 
   chartRegistry[canvasId] = new Chart(canvas, {
     type: "doughnut",
@@ -277,37 +330,36 @@ function renderNestedPie(metric) {
       maintainAspectRatio: false,
       animation: { duration: 400 },
       cutout: "25%",
-      layout: { padding: 4 },
+      layout: { padding: { top: 30, bottom: 30, left: 80, right: 80 } },
       onClick: (event, elements) => {
         if (elements.length === 0) return;
         const dsIndex = elements[0].datasetIndex;
         const idx = elements[0].index;
 
         if (dsIndex === 0) {
-          // Clicked outer ring (sector)
           toggleGlobalSectorFilter(outer.labels[idx]);
         } else {
-          // Clicked inner ring (stock)
           toggleGlobalStockFilter(inner.labels[idx]);
         }
       },
       plugins: {
         legend: { display: false },
         datalabels: {
-          color: "#ffffff",
-          font: { weight: "600", size: 9 },
-          textShadowBlur: 3,
-          textShadowColor: "rgba(0,0,0,0.3)",
-          formatter: (value, ctx) => {
-            const total = ctx.dataset.data.reduce((s, v) => s + v, 0);
-            const pct = total ? ((value / total) * 100).toFixed(1) : 0;
-            if (ctx.datasetIndex === 0) {
-              // Outer ring: show sector name + pct for large slices
-              return pct >= 8 ? `${outer.labels[ctx.dataIndex]}\n${pct}%` : (pct >= 4 ? `${pct}%` : "");
-            } else {
-              // Inner ring: show stock name for large slices
-              return pct >= 6 ? `${inner.labels[ctx.dataIndex]}` : "";
+          // Only label the inner ring (stocks) on the slices themselves
+          display: (ctx) => {
+            if (ctx.datasetIndex === 1) {
+              const total = ctx.dataset.data.reduce((s, v) => s + v, 0);
+              const pct = total ? (ctx.dataset.data[ctx.dataIndex] / total) * 100 : 0;
+              return pct >= 5;
             }
+            return false; // outer ring uses the leader-line plugin
+          },
+          color: "#ffffff",
+          font: { weight: "600", size: 8 },
+          textShadowBlur: 3,
+          textShadowColor: "rgba(0,0,0,0.4)",
+          formatter: (value, ctx) => {
+            return inner.labels[ctx.dataIndex];
           }
         },
         tooltip: {
@@ -329,36 +381,7 @@ function renderNestedPie(metric) {
         }
       }
     },
-    plugins: [ChartDataLabels]
-  });
-}
-
-function renderNestedPieLegend(sectors, sectorColorMap, grandTotal) {
-  const container = document.getElementById("nestedPieLegend");
-  if (!container) return;
-
-  let html = "";
-  sectors.forEach(sec => {
-    const pct = grandTotal ? ((sec.total / grandTotal) * 100).toFixed(1) : 0;
-    const color = sectorColorMap[sec.sector] || "#ccc";
-    const dimmed = globalFilter.sectors.length > 0 && !globalFilter.sectors.includes(sec.sector);
-    const opacity = dimmed ? "0.35" : "1";
-
-    html += `<div class="nested-legend-item" style="opacity:${opacity}" data-sector="${sec.sector}">`;
-    html += `<span class="nested-legend-swatch" style="background:${color}"></span>`;
-    html += `<span class="nested-legend-label">${sec.sector}</span>`;
-    html += `<span class="nested-legend-pct">${pct}%</span>`;
-    html += `</div>`;
-  });
-
-  container.innerHTML = html;
-
-  // Make legend items clickable for sector filtering
-  container.querySelectorAll(".nested-legend-item").forEach(item => {
-    item.addEventListener("click", () => {
-      const sec = item.dataset.sector;
-      if (sec) toggleGlobalSectorFilter(sec);
-    });
+    plugins: [ChartDataLabels, outerLabelsPlugin]
   });
 }
 

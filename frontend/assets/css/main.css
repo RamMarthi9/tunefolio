@@ -575,12 +575,12 @@ td:nth-child(9) {
 
 .sector-chart--nested {
     flex: 1 1 0;
-    max-width: 420px;
-    min-width: 300px;
+    max-width: 520px;
+    min-width: 340px;
 }
 
 .chart-box--nested {
-    height: 280px;
+    height: 400px;
 }
 
 .sector-chart--bar {
@@ -719,53 +719,6 @@ td:nth-child(9) {
         color: var(--muted);
         font-size: 11px;
     }
-}
-
-/* =========================
-   Nested Pie Legend
-========================= */
-.nested-pie-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 12px;
-    margin-top: 10px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
-}
-
-.nested-legend-item {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 11px;
-    color: var(--text);
-    cursor: pointer;
-    padding: 2px 4px;
-    border-radius: 4px;
-    transition: background 0.15s, opacity 0.2s;
-}
-
-.nested-legend-item:hover {
-    background: var(--accent-light);
-}
-
-.nested-legend-swatch {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 3px;
-    flex-shrink: 0;
-}
-
-.nested-legend-label {
-    font-weight: 500;
-    white-space: nowrap;
-}
-
-.nested-legend-pct {
-    color: var(--muted);
-    font-size: 10px;
-    font-weight: 600;
 }
 
 /* =========================
