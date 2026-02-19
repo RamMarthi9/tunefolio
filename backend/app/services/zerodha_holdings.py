@@ -1,8 +1,21 @@
+import os
+import time
 import requests
 from fastapi import HTTPException
 from backend.app.services.db import get_active_access_token, save_holdings_snapshot
 
+# In-memory cache: avoids duplicate Zerodha API calls within the same page load
+_holdings_cache = {"data": None, "timestamp": 0}
+CACHE_TTL = 30  # seconds — holdings don't change faster than this
+
+
 def fetch_zerodha_holdings():
+    now = time.time()
+
+    # Return cached data if fresh
+    if _holdings_cache["data"] and (now - _holdings_cache["timestamp"]) < CACHE_TTL:
+        return _holdings_cache["data"]
+
     access_token = get_active_access_token()
 
     if not access_token:
@@ -10,8 +23,6 @@ def fetch_zerodha_holdings():
             status_code=401,
             detail="No active Zerodha session found"
         )
-
-    import os
 
     KITE_API_KEY = os.getenv("KITE_API_KEY")
 
@@ -32,9 +43,11 @@ def fetch_zerodha_holdings():
 
     holdings = response.json()["data"]
 
-    # ✅ Persist snapshot
+    # Persist snapshot
     save_holdings_snapshot(holdings)
 
+    # Update cache
+    _holdings_cache["data"] = holdings
+    _holdings_cache["timestamp"] = now
+
     return holdings
-
-

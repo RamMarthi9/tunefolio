@@ -12,11 +12,8 @@ async function fetchHoldings() {
   return res.json();
 }
 
-async function fetchSectorAllocation() {
-  const res = await fetch(`${API_BASE}/portfolio/sector-allocation`);
-  if (!res.ok) throw new Error("Failed to load sector allocation");
-  return res.json();
-}
+// Sector allocation is now computed client-side from holdingsData
+// (no separate API call needed — saves a full Zerodha round-trip)
 
 async function logoutZerodha() {
   try {
@@ -994,16 +991,11 @@ function applyGlobalFilter() {
   renderHoldingsTable(getFilteredAndSorted());
 
   // 5. Re-render all charts
-  if (sectorAllocData || holdingsData.length > 0) {
-    // Nested pie: sectors outer, stocks inner
+  if (holdingsData.length > 0) {
     refreshNestedPie();
-
-    // P&L bar: supports sector/stock + auto drill-down
     refreshPnlChart();
+    refreshValueCompare();
   }
-
-  // 6. Value compare grouped bar
-  refreshValueCompare();
 }
 
 /* ========================================
@@ -1065,32 +1057,42 @@ async function renderHoldings() {
       dropdownsInitialized = true;
     }
 
-    // Refresh charts if sector data already loaded
-    if (sectorAllocData) {
-      refreshPnlChart();
-      refreshValueCompare();
-    }
+    /* -------- BUILD SECTOR ALLOC FROM HOLDINGS (no extra API call) -------- */
+    const sectorMap = {};
+    holdingsData.forEach(h => {
+      const sec = h.sector || "Unknown";
+      if (!sectorMap[sec]) sectorMap[sec] = { invested: 0, current: 0, pnl: 0 };
+      sectorMap[sec].invested += Number(h.invested_value || 0);
+      sectorMap[sec].current += Number(h.current_value || 0);
+      sectorMap[sec].pnl += Number(h.pnl || 0);
+    });
 
-    console.log("KPIs updated successfully");
+    const totalC = Object.values(sectorMap).reduce((s, v) => s + v.current, 0) || 1;
+    const totalI = Object.values(sectorMap).reduce((s, v) => s + v.invested, 0) || 1;
 
-  } catch (err) {
-    console.error("Holdings error:", err);
-  }
-}
+    sectorAllocData = {
+      by_current_value: Object.entries(sectorMap).map(([sector, v]) => ({
+        sector,
+        value: Math.round(v.current * 100) / 100,
+        percentage: Math.round((v.current / totalC) * 10000) / 100,
+        profit: Math.round(v.pnl * 100) / 100
+      })),
+      by_invested_value: Object.entries(sectorMap).map(([sector, v]) => ({
+        sector,
+        value: Math.round(v.invested * 100) / 100,
+        percentage: Math.round((v.invested / totalI) * 10000) / 100
+      }))
+    };
 
-async function renderSectorAllocation() {
-  try {
-    const data = await fetchSectorAllocation();
-    sectorAllocData = data;
-
-    // Render nested pie (uses holdingsData for stock-level breakdown)
+    /* -------- RENDER ALL CHARTS -------- */
     refreshNestedPie();
-
     refreshPnlChart();
     refreshValueCompare();
 
+    console.log("KPIs + charts updated successfully");
+
   } catch (err) {
-    console.error("Sector allocation error:", err);
+    console.error("Holdings error:", err);
   }
 }
 
@@ -1303,7 +1305,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   renderHoldings();
-  renderSectorAllocation();
 
   // Collapsible toggles
   document.querySelectorAll(".card-header--toggle").forEach(toggle => {
