@@ -39,7 +39,7 @@ TuneFolio is built to answer:
 - Historical context over point-in-time noise
 
 ---
-![Portfolio View](https://github.com/RamMarthi9/tunefolio/blob/23abb313606952db7aadafaa97098b1e5c1234d6/Portfolio.png)
+[The Core Idea](https://www.youtube.com/watch?v=Ec75hA47hck)
 
 ## What TuneFolio Does Today
 
@@ -91,6 +91,8 @@ TuneFolio is an **explainability layer**, not a trading terminal.
 
 ---
 
+![Portfolio View](https://github.com/RamMarthi9/tunefolio/blob/23abb313606952db7aadafaa97098b1e5c1234d6/Portfolio.png)
+
 ## Product Principles
 
 - Insight over action
@@ -129,8 +131,6 @@ TuneFolio is an **explainability layer**, not a trading terminal.
 - Snapshot storage: ✅
 
 🚧 **In progress**
-- SoD / EoD snapshot guards
-- Sector allocation analytics
 - Trading journal and decision history
 - Time-series portfolio insights
 
