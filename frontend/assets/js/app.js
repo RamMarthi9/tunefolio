@@ -67,6 +67,7 @@ const globalFilter = {
 
 const pnlState = { dimension: "sector" };
 const valueState = { dimension: "sector" };
+const nestedPieState = { metric: "current" };
 
 /* ========================================
    Global Filter Helpers
@@ -161,80 +162,136 @@ function clearAllFilters() {
 }
 
 /* ========================================
-   Pie Chart Rendering (with click + drill-down)
+   Nested Pie Chart (Sectors outer, Stocks inner)
 ======================================== */
 
-function buildPieDrilldownData(canvasId, sectorDataset) {
-  // If a single sector is selected and we have holdings data,
-  // drill down to show individual stocks within that sector
-  if (globalFilter.sectors.length === 1 && holdingsData.length > 0) {
-    const selectedSector = globalFilter.sectors[0];
-    const measure = canvasId === "sectorCurrentChart" ? "current_value" : "invested_value";
-    const stocksInSector = holdingsData.filter(h => h.sector === selectedSector);
+function buildNestedPieData(metric) {
+  const filtered = getGloballyFilteredHoldings();
+  if (filtered.length === 0) return null;
 
-    if (stocksInSector.length > 0) {
-      return {
-        isDrilldown: true,
-        data: stocksInSector.map(h => ({
-          sector: h.symbol,  // reuse sector field for label
-          value: Number(h[measure] || 0)
-        })).sort((a, b) => b.value - a.value)
-      };
-    }
-  }
+  const measure = metric === "current" ? "current_value" : "invested_value";
 
-  return { isDrilldown: false, data: sectorDataset };
+  // Group stocks by sector
+  const sectorMap = {};
+  filtered.forEach(h => {
+    const sec = h.sector || "Unknown";
+    if (!sectorMap[sec]) sectorMap[sec] = { total: 0, stocks: [] };
+    const val = Number(h[measure] || 0);
+    sectorMap[sec].total += val;
+    sectorMap[sec].stocks.push({ symbol: h.symbol, value: val });
+  });
+
+  // Sort sectors by value descending
+  const sectors = Object.entries(sectorMap)
+    .map(([sector, v]) => ({ sector, total: v.total, stocks: v.stocks.sort((a, b) => b.value - a.value) }))
+    .sort((a, b) => b.total - a.total);
+
+  const grandTotal = sectors.reduce((s, sec) => s + sec.total, 0) || 1;
+
+  // Build outer ring (sectors) and inner ring (stocks)
+  const outerLabels = [];
+  const outerValues = [];
+  const outerColors = [];
+  const innerLabels = [];
+  const innerValues = [];
+  const innerColors = [];
+  const sectorColorMap = {};
+
+  const sectorBaseColors = generateColors(sectors.length);
+
+  sectors.forEach((sec, si) => {
+    const baseColor = sectorBaseColors[si];
+    sectorColorMap[sec.sector] = baseColor;
+
+    // Dim if filtered and not selected
+    const dimmed = globalFilter.sectors.length > 0 && !globalFilter.sectors.includes(sec.sector);
+
+    outerLabels.push(sec.sector);
+    outerValues.push(sec.total);
+    outerColors.push(dimmed ? hslToHsla(baseColor, 0.2) : baseColor);
+
+    // Generate stock colors as lighter variants of sector color
+    sec.stocks.forEach((stock, j) => {
+      const lightness = 45 + (j * 12) % 40; // Vary lightness for stocks
+      const hueMatch = baseColor.match(/hsl\((\d+)/);
+      const hue = hueMatch ? parseInt(hueMatch[1]) : (si * 40);
+      const stockColor = `hsl(${hue}, 55%, ${lightness}%)`;
+
+      innerLabels.push(stock.symbol);
+      innerValues.push(stock.value);
+      innerColors.push(dimmed ? hslToHsla(stockColor, 0.2) : stockColor);
+    });
+  });
+
+  return {
+    grandTotal,
+    sectors,
+    sectorColorMap,
+    outer: { labels: outerLabels, values: outerValues, colors: outerColors },
+    inner: { labels: innerLabels, values: innerValues, colors: innerColors }
+  };
 }
 
-function renderPie(canvasId, fullDataset) {
+function renderNestedPie(metric) {
+  const canvasId = "nestedPieChart";
   const canvas = document.getElementById(canvasId);
-  if (!canvas || !Array.isArray(fullDataset) || fullDataset.length === 0) return;
+  if (!canvas) return;
 
   if (chartRegistry[canvasId]) {
     chartRegistry[canvasId].destroy();
+    delete chartRegistry[canvasId];
   }
 
-  // Check if we should drill down into a single sector
-  const { isDrilldown, data: dataset } = buildPieDrilldownData(canvasId, fullDataset);
+  const pieData = buildNestedPieData(metric);
+  if (!pieData) return;
 
-  const total = dataset.reduce((sum, d) => sum + Number(d.value || 0), 0);
-  const colors = generateColors(dataset.length);
+  const { grandTotal, sectors, sectorColorMap, outer, inner } = pieData;
 
-  // Dim non-selected sectors when filter is active (only in sector view, not drilldown)
-  const bgColors = dataset.map((d, i) => {
-    if (!isDrilldown && globalFilter.sectors.length > 0 &&
-        !globalFilter.sectors.includes(d.sector)) {
-      return hslToHsla(colors[i], 0.2);
-    }
-    return colors[i];
-  });
+  // Build legend
+  renderNestedPieLegend(sectors, sectorColorMap, grandTotal);
 
   chartRegistry[canvasId] = new Chart(canvas, {
-    type: "pie",
+    type: "doughnut",
     data: {
-      labels: dataset.map(d => d.sector),
-      datasets: [{
-        data: dataset.map(d => d.value),
-        backgroundColor: bgColors,
-        borderWidth: 1
-      }]
+      labels: outer.labels,
+      datasets: [
+        {
+          // Outer ring — Sectors
+          label: "Sectors",
+          data: outer.values,
+          backgroundColor: outer.colors,
+          borderWidth: 2,
+          borderColor: "#ffffff",
+          weight: 1
+        },
+        {
+          // Inner ring — Stocks
+          label: "Stocks",
+          data: inner.values,
+          backgroundColor: inner.colors,
+          borderWidth: 1,
+          borderColor: "#ffffff",
+          weight: 1
+        }
+      ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       animation: { duration: 400 },
-      layout: { padding: 0 },
+      cutout: "25%",
+      layout: { padding: 4 },
       onClick: (event, elements) => {
         if (elements.length === 0) return;
+        const dsIndex = elements[0].datasetIndex;
         const idx = elements[0].index;
-        const clickedLabel = dataset[idx].sector;
 
-        if (isDrilldown) {
-          // Clicking a stock in drill-down view toggles stock filter
-          toggleGlobalStockFilter(clickedLabel);
+        if (dsIndex === 0) {
+          // Clicked outer ring (sector)
+          toggleGlobalSectorFilter(outer.labels[idx]);
         } else {
-          // Clicking a sector toggles sector filter
-          toggleGlobalSectorFilter(clickedLabel);
+          // Clicked inner ring (stock)
+          toggleGlobalStockFilter(inner.labels[idx]);
         }
       },
       plugins: {
@@ -242,17 +299,34 @@ function renderPie(canvasId, fullDataset) {
         datalabels: {
           color: "#ffffff",
           font: { weight: "600", size: 9 },
-          formatter: (value) => {
+          textShadowBlur: 3,
+          textShadowColor: "rgba(0,0,0,0.3)",
+          formatter: (value, ctx) => {
+            const total = ctx.dataset.data.reduce((s, v) => s + v, 0);
             const pct = total ? ((value / total) * 100).toFixed(1) : 0;
-            return pct >= 5 ? `${pct}%` : "";
+            if (ctx.datasetIndex === 0) {
+              // Outer ring: show sector name + pct for large slices
+              return pct >= 8 ? `${outer.labels[ctx.dataIndex]}\n${pct}%` : (pct >= 4 ? `${pct}%` : "");
+            } else {
+              // Inner ring: show stock name for large slices
+              return pct >= 6 ? `${inner.labels[ctx.dataIndex]}` : "";
+            }
           }
         },
         tooltip: {
           callbacks: {
+            title: (tooltipItems) => {
+              const item = tooltipItems[0];
+              return item.datasetIndex === 0 ? "Sector" : "Stock";
+            },
             label: (ctx) => {
-              const pct = total ? ((ctx.parsed / total) * 100).toFixed(1) : 0;
-              const prefix = isDrilldown ? "(Stock) " : "";
-              return `${prefix}${ctx.label}: \u20B9${ctx.parsed.toLocaleString("en-IN")} (${pct}%)`;
+              const label = ctx.datasetIndex === 0
+                ? outer.labels[ctx.dataIndex]
+                : inner.labels[ctx.dataIndex];
+              const val = ctx.parsed;
+              const total = ctx.dataset.data.reduce((s, v) => s + v, 0);
+              const pct = total ? ((val / total) * 100).toFixed(1) : 0;
+              return `${label}: \u20B9${val.toLocaleString("en-IN")} (${pct}%)`;
             }
           }
         }
@@ -260,6 +334,39 @@ function renderPie(canvasId, fullDataset) {
     },
     plugins: [ChartDataLabels]
   });
+}
+
+function renderNestedPieLegend(sectors, sectorColorMap, grandTotal) {
+  const container = document.getElementById("nestedPieLegend");
+  if (!container) return;
+
+  let html = "";
+  sectors.forEach(sec => {
+    const pct = grandTotal ? ((sec.total / grandTotal) * 100).toFixed(1) : 0;
+    const color = sectorColorMap[sec.sector] || "#ccc";
+    const dimmed = globalFilter.sectors.length > 0 && !globalFilter.sectors.includes(sec.sector);
+    const opacity = dimmed ? "0.35" : "1";
+
+    html += `<div class="nested-legend-item" style="opacity:${opacity}" data-sector="${sec.sector}">`;
+    html += `<span class="nested-legend-swatch" style="background:${color}"></span>`;
+    html += `<span class="nested-legend-label">${sec.sector}</span>`;
+    html += `<span class="nested-legend-pct">${pct}%</span>`;
+    html += `</div>`;
+  });
+
+  container.innerHTML = html;
+
+  // Make legend items clickable for sector filtering
+  container.querySelectorAll(".nested-legend-item").forEach(item => {
+    item.addEventListener("click", () => {
+      const sec = item.dataset.sector;
+      if (sec) toggleGlobalSectorFilter(sec);
+    });
+  });
+}
+
+function refreshNestedPie() {
+  renderNestedPie(nestedPieState.metric);
 }
 
 /* ========================================
@@ -887,10 +994,9 @@ function applyGlobalFilter() {
   renderHoldingsTable(getFilteredAndSorted());
 
   // 5. Re-render all charts
-  if (sectorAllocData) {
-    // Pies: always show FULL dataset (dimming handled inside renderPie)
-    renderPie("sectorCurrentChart", sectorAllocData.by_current_value);
-    renderPie("sectorInvestedChart", sectorAllocData.by_invested_value);
+  if (sectorAllocData || holdingsData.length > 0) {
+    // Nested pie: sectors outer, stocks inner
+    refreshNestedPie();
 
     // P&L bar: supports sector/stock + auto drill-down
     refreshPnlChart();
@@ -977,13 +1083,8 @@ async function renderSectorAllocation() {
     const data = await fetchSectorAllocation();
     sectorAllocData = data;
 
-    if (data?.by_current_value?.length) {
-      renderPie("sectorCurrentChart", data.by_current_value);
-    }
-
-    if (data?.by_invested_value?.length) {
-      renderPie("sectorInvestedChart", data.by_invested_value);
-    }
+    // Render nested pie (uses holdingsData for stock-level breakdown)
+    refreshNestedPie();
 
     refreshPnlChart();
     refreshValueCompare();
@@ -1213,6 +1314,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         panel.classList.toggle("collapsed");
       });
     }
+  });
+
+  // Nested pie: Current/Invested metric toggle
+  document.querySelectorAll("#nestedPieToggle .toggle-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      nestedPieState.metric = btn.dataset.metric;
+      document.querySelectorAll("#nestedPieToggle .toggle-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      refreshNestedPie();
+    });
   });
 
   // P&L chart: Sector/Stock dimension toggle

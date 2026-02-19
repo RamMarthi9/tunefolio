@@ -74,20 +74,19 @@
 
             <div class="collapsible" id="sector-collapsible">
                 <div class="sector-grid">
-                    <!-- Pie: Current Value -->
-                    <div class="sector-chart">
-                        <h4>By Current Value</h4>
-                        <div class="chart-box">
-                            <canvas id="sectorCurrentChart"></canvas>
+                    <!-- Nested Pie: Sectors (outer) + Stocks (inner) -->
+                    <div class="sector-chart sector-chart--nested">
+                        <div class="drilldown-header">
+                            <h4>Allocation</h4>
+                            <div class="toggle-group" id="nestedPieToggle">
+                                <button class="toggle-btn active" data-metric="current">Current</button>
+                                <button class="toggle-btn" data-metric="invested">Invested</button>
+                            </div>
                         </div>
-                    </div>
-
-                    <!-- Pie: Invested Value -->
-                    <div class="sector-chart">
-                        <h4>By Invested Value</h4>
-                        <div class="chart-box">
-                            <canvas id="sectorInvestedChart"></canvas>
+                        <div class="chart-box chart-box--nested">
+                            <canvas id="nestedPieChart"></canvas>
                         </div>
+                        <div class="nested-pie-legend" id="nestedPieLegend"></div>
                     </div>
 
                     <!-- P&L Bar with Sector/Stock toggle -->
