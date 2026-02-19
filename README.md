@@ -40,7 +40,6 @@ TuneFolio is built to answer:
 - Historical context over point-in-time noise
 
 ---
-
 ## What TuneFolio Does Today
 
 ### Live Zerodha Integration
@@ -48,6 +47,7 @@ TuneFolio is built to answer:
 - Read-only access (no trading, no execution)
 - Active session management
 
+![Portfolio View](https://github.com/RamMarthi9/tunefolio/blob/23abb313606952db7aadafaa97098b1e5c1234d6/Portfolio.png)
 ### Portfolio Overview
 - Live holdings with:
   - Quantity
@@ -90,8 +90,6 @@ TuneFolio is built to answer:
 TuneFolio is an **explainability layer**, not a trading terminal.
 
 ---
-
-![Portfolio View](https://github.com/RamMarthi9/tunefolio/blob/23abb313606952db7aadafaa97098b1e5c1234d6/Portfolio.png)
 
 ## Product Principles
 
