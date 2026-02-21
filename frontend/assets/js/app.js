@@ -10,7 +10,14 @@ const FETCH_OPTS = { credentials: "include" };
 
 async function fetchHoldings() {
   const res = await fetch(`${API_BASE}/portfolio/holdings`, FETCH_OPTS);
-  if (!res.ok) throw new Error("Failed to load holdings");
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      // Session expired or invalid — redirect to re-login
+      window.location.href = `${API_BASE}/auth/zerodha/login`;
+      throw new Error("Session expired — redirecting to login");
+    }
+    throw new Error(`Failed to load holdings (HTTP ${res.status})`);
+  }
   return res.json();
 }
 
@@ -1122,6 +1129,13 @@ async function renderHoldings() {
 
   } catch (err) {
     console.error("Holdings error:", err);
+    // Show error in holdings table so user sees something
+    const tbody = document.getElementById("holdings-body");
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="9" class="loading" style="color:#dc2626;">
+        Failed to load holdings. Please <a href="${API_BASE}/auth/zerodha/login" style="color:#2563eb;text-decoration:underline;">re-login to Zerodha</a>.
+      </td></tr>`;
+    }
   }
 }
 
