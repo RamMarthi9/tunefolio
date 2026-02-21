@@ -92,7 +92,7 @@ body {
 ========================= */
 .kpi-strip {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 16px;
     padding: 16px 24px;
 }
@@ -113,7 +113,7 @@ body {
 }
 
 .kpi .value {
-    font-size: 22px;
+    font-size: clamp(16px, 1.5vw, 22px);
     margin-top: 6px;
     font-variant-numeric: tabular-nums;
     font-weight: 600;
@@ -681,6 +681,12 @@ td:nth-child(9) {
 /* =========================
    Responsive
 ========================= */
+@media (max-width: 1024px) {
+    .kpi-strip {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
 @media (max-width: 768px) {
     .kpi-strip {
         grid-template-columns: 1fr;

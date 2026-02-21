@@ -8,6 +8,12 @@ const API_BASE = window.location.hostname === "127.0.0.1" || window.location.hos
 
 const FETCH_OPTS = { credentials: "include" };
 
+async function fetchRealisedPnl() {
+  const res = await fetch(`${API_BASE}/portfolio/realised-pnl`, FETCH_OPTS);
+  if (!res.ok) return null;  // Non-critical; degrade gracefully
+  return res.json();
+}
+
 async function fetchHoldings() {
   const res = await fetch(`${API_BASE}/portfolio/holdings`, FETCH_OPTS);
   if (!res.ok) {
@@ -1126,6 +1132,28 @@ async function renderHoldings() {
     refreshValueCompare();
 
     console.log("KPIs + charts updated successfully");
+
+    /* -------- REALISED P&L KPIs -------- */
+    try {
+      const rpnl = await fetchRealisedPnl();
+      if (rpnl) {
+        const ytdEl = document.getElementById("kpi-realised-ytd");
+        ytdEl.innerText = formatINR(rpnl.ytd.realised_pnl);
+        ytdEl.className = "value " + (rpnl.ytd.realised_pnl >= 0 ? "positive" : "negative");
+
+        const prevEl = document.getElementById("kpi-realised-prev");
+        prevEl.innerText = formatINR(rpnl.previous_fy.realised_pnl);
+        prevEl.className = "value " + (rpnl.previous_fy.realised_pnl >= 0 ? "positive" : "negative");
+
+        // Dynamic label for previous FY
+        const prevLabel = document.getElementById("kpi-realised-prev-label");
+        if (prevLabel && rpnl.previous_fy.label) {
+          prevLabel.innerText = "Realised P&L (" + rpnl.previous_fy.label + ")";
+        }
+      }
+    } catch (e) {
+      console.warn("Realised P&L fetch failed:", e);
+    }
 
   } catch (err) {
     console.error("Holdings error:", err);

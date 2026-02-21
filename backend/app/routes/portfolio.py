@@ -258,3 +258,78 @@ def sync_delivery_data(request: Request, period: str = "1y"):
         "period": period,
         "results": results
     }
+
+
+# ─── Trades Import & Realised P&L ────────────────────────────────────
+
+@router.post("/trades/import")
+def import_trades():
+    """Import all tradebook CSVs into trades table. Idempotent."""
+    from backend.app.services.trades import import_tradebooks
+    summary = import_tradebooks()
+    total = sum(summary.values())
+    return {"status": "ok", "total_imported": total, "by_file": summary}
+
+
+@router.get("/realised-pnl")
+def realised_pnl(fy: str = None):
+    """
+    Realised P&L computed via FIFO.
+
+    Returns YTD (current FY to today), previous FY, and optionally a
+    specific FY if ?fy=FY2022-23 is provided.
+    """
+    from backend.app.services.trades import (
+        compute_realised_pnl,
+        get_fy_bounds,
+        get_available_fys,
+    )
+    from datetime import datetime as _dt
+
+    today = _dt.now().strftime("%Y-%m-%d")
+
+    # Current FY bounds
+    current_fy_start, current_fy_end = get_fy_bounds()
+    current_fy_label = f"FY{current_fy_start[:4]}-{str(int(current_fy_start[:4]) + 1)[-2:]}"
+
+    # YTD = current FY start → today
+    ytd_result = compute_realised_pnl(current_fy_start, today)
+
+    # Previous FY
+    prev_start_year = int(current_fy_start[:4]) - 1
+    prev_fy_start = f"{prev_start_year}-04-01"
+    prev_fy_end = f"{prev_start_year + 1}-03-31"
+    prev_fy_label = f"FY{prev_start_year}-{str(prev_start_year + 1)[-2:]}"
+    prev_fy_result = compute_realised_pnl(prev_fy_start, prev_fy_end)
+
+    # Specific FY (optional query param)
+    specific_fy = None
+    if fy and fy.startswith("FY"):
+        fy_s, fy_e = get_fy_bounds(fy)
+        specific_result = compute_realised_pnl(fy_s, fy_e)
+        specific_fy = {
+            "label": fy,
+            "realised_pnl": specific_result["total_realised_pnl"],
+            "total_sells": specific_result["total_sells"],
+            "symbols_sold": specific_result["total_symbols_sold"],
+            "by_symbol": specific_result["by_symbol"],
+        }
+
+    available = get_available_fys()
+
+    return {
+        "ytd": {
+            "label": f"YTD ({current_fy_label})",
+            "realised_pnl": ytd_result["total_realised_pnl"],
+            "total_sells": ytd_result["total_sells"],
+            "symbols_sold": ytd_result["total_symbols_sold"],
+        },
+        "previous_fy": {
+            "label": prev_fy_label,
+            "realised_pnl": prev_fy_result["total_realised_pnl"],
+            "total_sells": prev_fy_result["total_sells"],
+            "symbols_sold": prev_fy_result["total_symbols_sold"],
+        },
+        "available_fys": available,
+        "specific_fy": specific_fy,
+    }

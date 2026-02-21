@@ -473,3 +473,33 @@ def get_delivery_cache(symbol: str, period_days: int = 365) -> list:
             "low_price": row["low_price"] or 0
         })
     return results
+
+
+# ─── Trades (Tradebook Import) ──────────────────────────────────────
+
+def create_trades_table():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            isin TEXT,
+            trade_date TEXT NOT NULL,
+            exchange TEXT NOT NULL,
+            segment TEXT,
+            series TEXT,
+            trade_type TEXT NOT NULL,
+            auction TEXT,
+            quantity REAL NOT NULL,
+            price REAL NOT NULL,
+            trade_id TEXT NOT NULL,
+            order_id TEXT,
+            order_execution_time TEXT,
+            source_file TEXT,
+            imported_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(trade_id, symbol, trade_date, exchange)
+        )
+    """)
+    conn.commit()
+    conn.close()
