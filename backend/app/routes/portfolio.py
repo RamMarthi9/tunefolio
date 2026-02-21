@@ -47,10 +47,12 @@ def portfolio_margins(request: Request):
 
     available = margins.get("available", {})
     return {
+        "net": round(margins.get("net", 0), 2),
         "cash": round(available.get("cash", 0), 2),
         "collateral": round(available.get("collateral", 0), 2),
-        "intraday_payin": round(available.get("intraday_payin", 0), 2),
+        "opening_balance": round(available.get("opening_balance", 0), 2),
         "live_balance": round(available.get("live_balance", 0), 2),
+        "intraday_payin": round(available.get("intraday_payin", 0), 2),
     }
 
 

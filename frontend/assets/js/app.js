@@ -1166,7 +1166,7 @@ async function renderHoldings() {
       const margins = await fetchMargins();
       if (margins) {
         const cashEl = document.getElementById("kpi-cash");
-        cashEl.innerText = formatINR(margins.cash);
+        cashEl.innerText = formatINR(margins.net);
       }
     } catch (e) {
       console.warn("Margins fetch failed:", e);
