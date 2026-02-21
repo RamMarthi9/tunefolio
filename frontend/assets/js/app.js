@@ -14,6 +14,12 @@ async function fetchRealisedPnl() {
   return res.json();
 }
 
+async function fetchMargins() {
+  const res = await fetch(`${API_BASE}/portfolio/margins`, FETCH_OPTS);
+  if (!res.ok) return null;  // Non-critical; degrade gracefully
+  return res.json();
+}
+
 async function fetchHoldings() {
   const res = await fetch(`${API_BASE}/portfolio/holdings`, FETCH_OPTS);
   if (!res.ok) {
@@ -1153,6 +1159,17 @@ async function renderHoldings() {
       }
     } catch (e) {
       console.warn("Realised P&L fetch failed:", e);
+    }
+
+    /* -------- CASH AVAILABLE KPI -------- */
+    try {
+      const margins = await fetchMargins();
+      if (margins) {
+        const cashEl = document.getElementById("kpi-cash");
+        cashEl.innerText = formatINR(margins.cash);
+      }
+    } catch (e) {
+      console.warn("Margins fetch failed:", e);
     }
 
   } catch (err) {

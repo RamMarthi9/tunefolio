@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 
-from backend.app.services.zerodha_holdings import fetch_zerodha_holdings
+from backend.app.services.zerodha_holdings import fetch_zerodha_holdings, fetch_zerodha_margins
 from backend.app.services.db import (
     get_latest_snapshot_meta,
     upsert_instruments_from_holdings,
@@ -35,6 +35,24 @@ def portfolio_overview(request: Request):
         "current_value": round(current_value, 2),
         "total_pnl": round(total_pnl, 2),
     }
+
+@router.get("/margins")
+def portfolio_margins(request: Request):
+    """Available cash and collateral from Zerodha equity margins."""
+    session_id = request.cookies.get("tf_session")
+    try:
+        margins = fetch_zerodha_margins(session_id)
+    except Exception as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    available = margins.get("available", {})
+    return {
+        "cash": round(available.get("cash", 0), 2),
+        "collateral": round(available.get("collateral", 0), 2),
+        "intraday_payin": round(available.get("intraday_payin", 0), 2),
+        "live_balance": round(available.get("live_balance", 0), 2),
+    }
+
 
 @router.get("/holdings")
 def portfolio_holdings(request: Request):

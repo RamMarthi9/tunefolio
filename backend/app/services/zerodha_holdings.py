@@ -6,6 +6,7 @@ from backend.app.services.db import get_active_access_token, save_holdings_snaps
 
 # Per-session cache: keyed by session_id so different users don't share data
 _holdings_cache = {}
+_margins_cache = {}
 CACHE_TTL = 30  # seconds
 
 
@@ -53,3 +54,44 @@ def fetch_zerodha_holdings(session_id: str = None):
     _holdings_cache[cache_key] = {"data": holdings, "timestamp": now}
 
     return holdings
+
+
+def fetch_zerodha_margins(session_id: str = None):
+    now = time.time()
+
+    cache_key = session_id or "__global__"
+    if cache_key in _margins_cache:
+        entry = _margins_cache[cache_key]
+        if entry["data"] and (now - entry["timestamp"]) < CACHE_TTL:
+            return entry["data"]
+
+    access_token = get_active_access_token(session_id)
+
+    if not access_token:
+        raise HTTPException(
+            status_code=401,
+            detail="No active Zerodha session found"
+        )
+
+    KITE_API_KEY = os.getenv("KITE_API_KEY")
+
+    headers = {
+        "Authorization": f"token {KITE_API_KEY}:{access_token}"
+    }
+
+    response = requests.get(
+        "https://api.kite.trade/user/margins/equity",
+        headers=headers
+    )
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail="Failed to fetch Zerodha margins"
+        )
+
+    margins = response.json()["data"]
+
+    _margins_cache[cache_key] = {"data": margins, "timestamp": now}
+
+    return margins
