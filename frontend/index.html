@@ -71,42 +71,58 @@
     ========================== -->
     <main class="content">
 
-        <!-- Sectoral Analysis -->
+        <!-- Allocation (Pie Charts) -->
         <section class="card">
-            <div class="card-header card-header--toggle" id="sector-toggle">
+            <div class="card-header card-header--toggle">
                 <div class="card-header-left">
-                    <h2>Sectoral Analysis</h2>
+                    <h2>Allocation</h2>
                 </div>
-                <button class="collapse-btn" aria-label="Toggle sectoral analysis">
+                <button class="collapse-btn" aria-label="Toggle allocation">
                     <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
                         <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                 </button>
             </div>
-
-            <div class="collapsible" id="sector-collapsible">
-                <div class="sector-grid">
-                    <!-- Allocation: Current + Invested side by side -->
-                    <div class="sector-chart sector-chart--nested">
-                        <div class="drilldown-header">
-                            <h4>Allocation</h4>
+            <div class="collapsible">
+                <div class="allocation-section">
+                    <div class="drilldown-header">
+                        <div class="toggle-group" id="allocDimToggle">
+                            <button class="toggle-btn active" data-dim="sector">Sector</button>
+                            <button class="toggle-btn" data-dim="stock">Stock</button>
                         </div>
-                        <div class="allocation-pair">
-                            <div class="allocation-chart">
-                                <h5>Current Value</h5>
-                                <div class="chart-box chart-box--alloc">
-                                    <canvas id="allocChartCurrent"></canvas>
-                                </div>
+                    </div>
+                    <div class="allocation-pair">
+                        <div class="allocation-chart">
+                            <h5>Current Value</h5>
+                            <div class="chart-box chart-box--alloc">
+                                <canvas id="allocChartCurrent"></canvas>
                             </div>
-                            <div class="allocation-chart">
-                                <h5>Invested Value</h5>
-                                <div class="chart-box chart-box--alloc">
-                                    <canvas id="allocChartInvested"></canvas>
-                                </div>
+                        </div>
+                        <div class="allocation-chart">
+                            <h5>Invested Value</h5>
+                            <div class="chart-box chart-box--alloc">
+                                <canvas id="allocChartInvested"></canvas>
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </section>
 
+        <!-- Analysis (Bar Charts) -->
+        <section class="card">
+            <div class="card-header card-header--toggle">
+                <div class="card-header-left">
+                    <h2>Analysis</h2>
+                </div>
+                <button class="collapse-btn" aria-label="Toggle analysis">
+                    <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="collapsible">
+                <div class="sector-grid">
                     <!-- P&L Bar with Sector/Stock toggle -->
                     <div class="sector-chart sector-chart--bar">
                         <div class="drilldown-header">

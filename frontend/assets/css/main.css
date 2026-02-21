@@ -573,10 +573,8 @@ td:nth-child(9) {
     padding: 12px;
 }
 
-.sector-chart--nested {
-    flex: 1 1 100%;
-    max-width: none;
-    min-width: 340px;
+.allocation-section {
+    padding: 0 8px 8px;
 }
 
 .allocation-pair {

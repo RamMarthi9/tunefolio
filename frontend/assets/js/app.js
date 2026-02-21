@@ -87,9 +87,11 @@ const globalFilter = {
 
 const pnlState = { dimension: "sector" };
 const valueState = { dimension: "sector" };
+const allocState = { dimension: "sector" };
 
 // Shared color maps — populated once from holdingsData, reused across all charts
 let sharedSectorColorMap = {};  // sector → hsl color
+let sharedStockColorMap = {};   // symbol → hsl color
 
 /* ========================================
    Global Filter Helpers
@@ -188,21 +190,75 @@ function clearAllFilters() {
 ======================================== */
 
 function initSharedColorMap() {
+  // Sectors: sorted alphabetically → deterministic color assignment
   const allSectors = [...new Set(holdingsData.map(h => h.sector || "Unknown"))].sort();
   const sectorColors = generateColors(allSectors.length);
   sharedSectorColorMap = {};
   allSectors.forEach((sec, i) => {
     sharedSectorColorMap[sec] = sectorColors[i];
   });
+
+  // Stocks: derive from sector hue, lightness varies per stock within sector
+  sharedStockColorMap = {};
+  const sectorStocks = {};
+  holdingsData.forEach(h => {
+    const sec = h.sector || "Unknown";
+    if (!sectorStocks[sec]) sectorStocks[sec] = [];
+    if (!sectorStocks[sec].includes(h.symbol)) sectorStocks[sec].push(h.symbol);
+  });
+  Object.entries(sectorStocks).forEach(([sec, symbols]) => {
+    const baseColor = sharedSectorColorMap[sec] || "hsl(0, 65%, 55%)";
+    const hueMatch = baseColor.match(/hsl\((\d+)/);
+    const hue = hueMatch ? parseInt(hueMatch[1]) : 0;
+    symbols.sort().forEach((sym, j) => {
+      const lightness = 40 + (j * 10) % 45;
+      sharedStockColorMap[sym] = `hsl(${hue}, 60%, ${lightness}%)`;
+    });
+  });
 }
 
 function buildPieData(metric) {
+  const dimension = allocState.dimension;
   const filtered = getGloballyFilteredHoldings();
   if (filtered.length === 0) return null;
 
   const measure = metric === "current" ? "current_value" : "invested_value";
 
-  // Group by sector
+  // Auto drill-down: 1 sector selected in sector mode → show stocks within it
+  if (globalFilter.sectors.length === 1 && dimension === "sector") {
+    const selectedSector = globalFilter.sectors[0];
+    const stocks = holdingsData.filter(h => h.sector === selectedSector);
+    if (stocks.length > 0) {
+      const sorted = stocks
+        .map(h => ({ symbol: h.symbol, value: Number(h[measure] || 0) }))
+        .sort((a, b) => b.value - a.value);
+      return {
+        labels: sorted.map(s => s.symbol),
+        values: sorted.map(s => s.value),
+        colors: sorted.map(s => sharedStockColorMap[s.symbol] || "#94a3b8"),
+        isStock: true
+      };
+    }
+  }
+
+  // Stock mode: show all individual stocks
+  if (dimension === "stock") {
+    const sorted = filtered
+      .map(h => ({ symbol: h.symbol, value: Number(h[measure] || 0) }))
+      .sort((a, b) => b.value - a.value);
+    return {
+      labels: sorted.map(s => s.symbol),
+      values: sorted.map(s => s.value),
+      colors: sorted.map(s => {
+        const base = sharedStockColorMap[s.symbol] || "#94a3b8";
+        const dimmed = globalFilter.stocks.length > 0 && !globalFilter.stocks.includes(s.symbol);
+        return dimmed ? hslToHsla(base, 0.2) : base;
+      }),
+      isStock: true
+    };
+  }
+
+  // Sector mode (default): group by sector
   const sectorMap = {};
   filtered.forEach(h => {
     const sec = h.sector || "Unknown";
@@ -210,20 +266,20 @@ function buildPieData(metric) {
     sectorMap[sec] += Number(h[measure] || 0);
   });
 
-  // Sort sectors by value descending
   const sectors = Object.entries(sectorMap)
     .map(([sector, value]) => ({ sector, value }))
     .sort((a, b) => b.value - a.value);
 
-  const labels = sectors.map(s => s.sector);
-  const values = sectors.map(s => s.value);
-  const colors = sectors.map(s => {
-    const baseColor = sharedSectorColorMap[s.sector] || "#94a3b8";
-    const dimmed = globalFilter.sectors.length > 0 && !globalFilter.sectors.includes(s.sector);
-    return dimmed ? hslToHsla(baseColor, 0.2) : baseColor;
-  });
-
-  return { labels, values, colors };
+  return {
+    labels: sectors.map(s => s.sector),
+    values: sectors.map(s => s.value),
+    colors: sectors.map(s => {
+      const baseColor = sharedSectorColorMap[s.sector] || "#94a3b8";
+      const dimmed = globalFilter.sectors.length > 0 && !globalFilter.sectors.includes(s.sector);
+      return dimmed ? hslToHsla(baseColor, 0.2) : baseColor;
+    }),
+    isStock: false
+  };
 }
 
 function renderAllocationPie(canvasId, metric) {
@@ -238,9 +294,9 @@ function renderAllocationPie(canvasId, metric) {
   const pieData = buildPieData(metric);
   if (!pieData) return;
 
-  const { labels, values, colors } = pieData;
+  const { labels, values, colors, isStock } = pieData;
 
-  // Leader lines plugin
+  // Leader lines plugin — skip labels for stock-level (too many slices)
   const leaderLinesPlugin = {
     id: "leaderLines_" + canvasId,
     afterDraw(chart) {
@@ -250,11 +306,12 @@ function renderAllocationPie(canvasId, metric) {
 
       const centerX = chart.chartArea.left + (chart.chartArea.right - chart.chartArea.left) / 2;
       const centerY = chart.chartArea.top + (chart.chartArea.bottom - chart.chartArea.top) / 2;
+      const minPct = isStock ? 6 : 4;
 
       meta.data.forEach((arc, i) => {
         const total = values.reduce((s, v) => s + v, 0);
         const pct = total ? (values[i] / total) * 100 : 0;
-        if (pct < 4) return;
+        if (pct < minPct) return;
 
         const midAngle = (arc.startAngle + arc.endAngle) / 2;
         const outerRadius = arc.outerRadius;
@@ -281,7 +338,7 @@ function renderAllocationPie(canvasId, metric) {
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        ctx.font = "600 9px system-ui, sans-serif";
+        ctx.font = isStock ? "600 8px system-ui, sans-serif" : "600 9px system-ui, sans-serif";
         ctx.fillStyle = "#334155";
         ctx.textBaseline = "middle";
         ctx.textAlign = isRight ? "left" : "right";
@@ -298,7 +355,7 @@ function renderAllocationPie(canvasId, metric) {
       datasets: [{
         data: values,
         backgroundColor: colors,
-        borderWidth: 2,
+        borderWidth: isStock ? 1 : 2,
         borderColor: "#ffffff"
       }]
     },
@@ -311,7 +368,11 @@ function renderAllocationPie(canvasId, metric) {
       onClick: (event, elements) => {
         if (elements.length === 0) return;
         const idx = elements[0].index;
-        toggleGlobalSectorFilter(labels[idx]);
+        if (isStock) {
+          toggleGlobalStockFilter(labels[idx]);
+        } else {
+          toggleGlobalSectorFilter(labels[idx]);
+        }
       },
       plugins: {
         legend: { display: false },
@@ -1404,6 +1465,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         panel.classList.toggle("collapsed");
       });
     }
+  });
+
+  // Allocation pie: Sector/Stock dimension toggle
+  document.querySelectorAll("#allocDimToggle .toggle-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      allocState.dimension = btn.dataset.dim;
+      document.querySelectorAll("#allocDimToggle .toggle-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      refreshAllocationPies();
+    });
   });
 
   // P&L chart: Sector/Stock dimension toggle
