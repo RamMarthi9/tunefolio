@@ -87,7 +87,9 @@ const globalFilter = {
 
 const pnlState = { dimension: "sector" };
 const valueState = { dimension: "sector" };
-const nestedPieState = { metric: "current" };
+
+// Shared color maps — populated once from holdingsData, reused across all charts
+let sharedSectorColorMap = {};  // sector → hsl color
 
 /* ========================================
    Global Filter Helpers
@@ -182,78 +184,49 @@ function clearAllFilters() {
 }
 
 /* ========================================
-   Nested Pie Chart (Sectors outer, Stocks inner)
+   Allocation Pie Charts (Current + Invested, side by side)
 ======================================== */
 
-function buildNestedPieData(metric) {
+function initSharedColorMap() {
+  const allSectors = [...new Set(holdingsData.map(h => h.sector || "Unknown"))].sort();
+  const sectorColors = generateColors(allSectors.length);
+  sharedSectorColorMap = {};
+  allSectors.forEach((sec, i) => {
+    sharedSectorColorMap[sec] = sectorColors[i];
+  });
+}
+
+function buildPieData(metric) {
   const filtered = getGloballyFilteredHoldings();
   if (filtered.length === 0) return null;
 
   const measure = metric === "current" ? "current_value" : "invested_value";
 
-  // Group stocks by sector
+  // Group by sector
   const sectorMap = {};
   filtered.forEach(h => {
     const sec = h.sector || "Unknown";
-    if (!sectorMap[sec]) sectorMap[sec] = { total: 0, stocks: [] };
-    const val = Number(h[measure] || 0);
-    sectorMap[sec].total += val;
-    sectorMap[sec].stocks.push({ symbol: h.symbol, value: val });
+    if (!sectorMap[sec]) sectorMap[sec] = 0;
+    sectorMap[sec] += Number(h[measure] || 0);
   });
 
   // Sort sectors by value descending
   const sectors = Object.entries(sectorMap)
-    .map(([sector, v]) => ({ sector, total: v.total, stocks: v.stocks.sort((a, b) => b.value - a.value) }))
-    .sort((a, b) => b.total - a.total);
+    .map(([sector, value]) => ({ sector, value }))
+    .sort((a, b) => b.value - a.value);
 
-  const grandTotal = sectors.reduce((s, sec) => s + sec.total, 0) || 1;
-
-  // Build outer ring (sectors) and inner ring (stocks)
-  const outerLabels = [];
-  const outerValues = [];
-  const outerColors = [];
-  const innerLabels = [];
-  const innerValues = [];
-  const innerColors = [];
-  const sectorColorMap = {};
-
-  const sectorBaseColors = generateColors(sectors.length);
-
-  sectors.forEach((sec, si) => {
-    const baseColor = sectorBaseColors[si];
-    sectorColorMap[sec.sector] = baseColor;
-
-    // Dim if filtered and not selected
-    const dimmed = globalFilter.sectors.length > 0 && !globalFilter.sectors.includes(sec.sector);
-
-    outerLabels.push(sec.sector);
-    outerValues.push(sec.total);
-    outerColors.push(dimmed ? hslToHsla(baseColor, 0.2) : baseColor);
-
-    // Generate stock colors as lighter variants of sector color
-    sec.stocks.forEach((stock, j) => {
-      const lightness = 45 + (j * 12) % 40; // Vary lightness for stocks
-      const hueMatch = baseColor.match(/hsl\((\d+)/);
-      const hue = hueMatch ? parseInt(hueMatch[1]) : (si * 40);
-      const stockColor = `hsl(${hue}, 55%, ${lightness}%)`;
-
-      innerLabels.push(stock.symbol);
-      innerValues.push(stock.value);
-      innerColors.push(dimmed ? hslToHsla(stockColor, 0.2) : stockColor);
-    });
+  const labels = sectors.map(s => s.sector);
+  const values = sectors.map(s => s.value);
+  const colors = sectors.map(s => {
+    const baseColor = sharedSectorColorMap[s.sector] || "#94a3b8";
+    const dimmed = globalFilter.sectors.length > 0 && !globalFilter.sectors.includes(s.sector);
+    return dimmed ? hslToHsla(baseColor, 0.2) : baseColor;
   });
 
-  return {
-    grandTotal,
-    sectors,
-    sectorColorMap,
-    outer: { labels: outerLabels, values: outerValues, colors: outerColors },
-    inner: { labels: innerLabels, values: innerValues, colors: innerColors }
-  };
+  return { labels, values, colors };
 }
 
-function renderNestedPie(metric) {
-  const canvasId = "nestedPieChart";
+function renderAllocationPie(canvasId, metric) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
 
@@ -262,47 +235,43 @@ function renderNestedPie(metric) {
     delete chartRegistry[canvasId];
   }
 
-  const pieData = buildNestedPieData(metric);
+  const pieData = buildPieData(metric);
   if (!pieData) return;
 
-  const { grandTotal, sectors, sectorColorMap, outer, inner } = pieData;
+  const { labels, values, colors } = pieData;
 
-  // Custom plugin: draw leader lines from outer ring to outside labels
-  const outerLabelsPlugin = {
-    id: "outerLabelsPlugin",
+  // Leader lines plugin
+  const leaderLinesPlugin = {
+    id: "leaderLines_" + canvasId,
     afterDraw(chart) {
       const ctx = chart.ctx;
-      const meta = chart.getDatasetMeta(0); // outer ring
+      const meta = chart.getDatasetMeta(0);
       if (!meta || !meta.data) return;
 
       const centerX = chart.chartArea.left + (chart.chartArea.right - chart.chartArea.left) / 2;
       const centerY = chart.chartArea.top + (chart.chartArea.bottom - chart.chartArea.top) / 2;
 
       meta.data.forEach((arc, i) => {
-        const total = outer.values.reduce((s, v) => s + v, 0);
-        const pct = total ? (outer.values[i] / total) * 100 : 0;
-        if (pct < 3) return; // skip tiny slices
+        const total = values.reduce((s, v) => s + v, 0);
+        const pct = total ? (values[i] / total) * 100 : 0;
+        if (pct < 4) return;
 
         const midAngle = (arc.startAngle + arc.endAngle) / 2;
         const outerRadius = arc.outerRadius;
 
-        // Point on the outer edge of the arc
         const edgeX = centerX + Math.cos(midAngle) * outerRadius;
         const edgeY = centerY + Math.sin(midAngle) * outerRadius;
 
-        // Extended point for the leader line elbow
-        const elbowLen = 16;
+        const elbowLen = 14;
         const elbowX = centerX + Math.cos(midAngle) * (outerRadius + elbowLen);
         const elbowY = centerY + Math.sin(midAngle) * (outerRadius + elbowLen);
 
-        // Horizontal tail
-        const tailLen = 12;
+        const tailLen = 10;
         const isRight = Math.cos(midAngle) >= 0;
         const tailX = elbowX + (isRight ? tailLen : -tailLen);
 
-        const label = `${outer.labels[i]} ${pct.toFixed(1)}%`;
+        const label = `${labels[i]} ${pct.toFixed(1)}%`;
 
-        // Draw leader line
         ctx.save();
         ctx.beginPath();
         ctx.moveTo(edgeX, edgeY);
@@ -312,8 +281,7 @@ function renderNestedPie(metric) {
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // Draw label text
-        ctx.font = "600 10px system-ui, sans-serif";
+        ctx.font = "600 9px system-ui, sans-serif";
         ctx.fillStyle = "#334155";
         ctx.textBaseline = "middle";
         ctx.textAlign = isRight ? "left" : "right";
@@ -326,90 +294,47 @@ function renderNestedPie(metric) {
   chartRegistry[canvasId] = new Chart(canvas, {
     type: "doughnut",
     data: {
-      labels: outer.labels,
-      datasets: [
-        {
-          // Outer ring — Sectors
-          label: "Sectors",
-          data: outer.values,
-          backgroundColor: outer.colors,
-          borderWidth: 2,
-          borderColor: "#ffffff",
-          weight: 1
-        },
-        {
-          // Inner ring — Stocks
-          label: "Stocks",
-          data: inner.values,
-          backgroundColor: inner.colors,
-          borderWidth: 1,
-          borderColor: "#ffffff",
-          weight: 1
-        }
-      ]
+      labels: labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderWidth: 2,
+        borderColor: "#ffffff"
+      }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       animation: { duration: 400 },
-      cutout: "25%",
-      layout: { padding: { top: 30, bottom: 30, left: 80, right: 80 } },
+      cutout: "35%",
+      layout: { padding: { top: 25, bottom: 25, left: 60, right: 60 } },
       onClick: (event, elements) => {
         if (elements.length === 0) return;
-        const dsIndex = elements[0].datasetIndex;
         const idx = elements[0].index;
-
-        if (dsIndex === 0) {
-          toggleGlobalSectorFilter(outer.labels[idx]);
-        } else {
-          toggleGlobalStockFilter(inner.labels[idx]);
-        }
+        toggleGlobalSectorFilter(labels[idx]);
       },
       plugins: {
         legend: { display: false },
-        datalabels: {
-          // Only label the inner ring (stocks) on the slices themselves
-          display: (ctx) => {
-            if (ctx.datasetIndex === 1) {
-              const total = ctx.dataset.data.reduce((s, v) => s + v, 0);
-              const pct = total ? (ctx.dataset.data[ctx.dataIndex] / total) * 100 : 0;
-              return pct >= 5;
-            }
-            return false; // outer ring uses the leader-line plugin
-          },
-          color: "#ffffff",
-          font: { weight: "600", size: 8 },
-          textShadowBlur: 3,
-          textShadowColor: "rgba(0,0,0,0.4)",
-          formatter: (value, ctx) => {
-            return inner.labels[ctx.dataIndex];
-          }
-        },
+        datalabels: { display: false },
         tooltip: {
           callbacks: {
-            title: (tooltipItems) => {
-              const item = tooltipItems[0];
-              return item.datasetIndex === 0 ? "Sector" : "Stock";
-            },
             label: (ctx) => {
-              const label = ctx.datasetIndex === 0
-                ? outer.labels[ctx.dataIndex]
-                : inner.labels[ctx.dataIndex];
               const val = ctx.parsed;
               const total = ctx.dataset.data.reduce((s, v) => s + v, 0);
               const pct = total ? ((val / total) * 100).toFixed(1) : 0;
-              return `${label}: \u20B9${val.toLocaleString("en-IN")} (${pct}%)`;
+              return `${labels[ctx.dataIndex]}: \u20B9${val.toLocaleString("en-IN")} (${pct}%)`;
             }
           }
         }
       }
     },
-    plugins: [ChartDataLabels, outerLabelsPlugin]
+    plugins: [ChartDataLabels, leaderLinesPlugin]
   });
 }
 
-function refreshNestedPie() {
-  renderNestedPie(nestedPieState.metric);
+function refreshAllocationPies() {
+  renderAllocationPie("allocChartCurrent", "current");
+  renderAllocationPie("allocChartInvested", "invested");
 }
 
 /* ========================================
@@ -1040,7 +965,7 @@ function applyGlobalFilter() {
 
   // 5. Re-render all charts
   if (holdingsData.length > 0) {
-    refreshNestedPie();
+    refreshAllocationPies();
     refreshPnlChart();
     refreshValueCompare();
   }
@@ -1133,7 +1058,8 @@ async function renderHoldings() {
     };
 
     /* -------- RENDER ALL CHARTS -------- */
-    refreshNestedPie();
+    initSharedColorMap();
+    refreshAllocationPies();
     refreshPnlChart();
     refreshValueCompare();
 
@@ -1478,17 +1404,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         panel.classList.toggle("collapsed");
       });
     }
-  });
-
-  // Nested pie: Current/Invested metric toggle
-  document.querySelectorAll("#nestedPieToggle .toggle-btn").forEach(btn => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      nestedPieState.metric = btn.dataset.metric;
-      document.querySelectorAll("#nestedPieToggle .toggle-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      refreshNestedPie();
-    });
   });
 
   // P&L chart: Sector/Stock dimension toggle

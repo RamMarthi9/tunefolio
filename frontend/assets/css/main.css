@@ -574,13 +574,33 @@ td:nth-child(9) {
 }
 
 .sector-chart--nested {
-    flex: 1 1 0;
-    max-width: 520px;
+    flex: 1 1 100%;
+    max-width: none;
     min-width: 340px;
 }
 
-.chart-box--nested {
-    height: 400px;
+.allocation-pair {
+    display: flex;
+    gap: 16px;
+}
+
+.allocation-chart {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.allocation-chart h5 {
+    text-align: center;
+    font-size: 12px;
+    color: #64748b;
+    margin: 0 0 8px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.chart-box--alloc {
+    height: 350px;
 }
 
 .sector-chart--bar {
@@ -690,6 +710,10 @@ td:nth-child(9) {
 @media (max-width: 768px) {
     .kpi-strip {
         grid-template-columns: 1fr;
+    }
+
+    .allocation-pair {
+        flex-direction: column;
     }
 
     .sector-grid {

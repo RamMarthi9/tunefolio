@@ -86,17 +86,24 @@
 
             <div class="collapsible" id="sector-collapsible">
                 <div class="sector-grid">
-                    <!-- Nested Pie: Sectors (outer) + Stocks (inner) -->
+                    <!-- Allocation: Current + Invested side by side -->
                     <div class="sector-chart sector-chart--nested">
                         <div class="drilldown-header">
                             <h4>Allocation</h4>
-                            <div class="toggle-group" id="nestedPieToggle">
-                                <button class="toggle-btn active" data-metric="current">Current</button>
-                                <button class="toggle-btn" data-metric="invested">Invested</button>
-                            </div>
                         </div>
-                        <div class="chart-box chart-box--nested">
-                            <canvas id="nestedPieChart"></canvas>
+                        <div class="allocation-pair">
+                            <div class="allocation-chart">
+                                <h5>Current Value</h5>
+                                <div class="chart-box chart-box--alloc">
+                                    <canvas id="allocChartCurrent"></canvas>
+                                </div>
+                            </div>
+                            <div class="allocation-chart">
+                                <h5>Invested Value</h5>
+                                <div class="chart-box chart-box--alloc">
+                                    <canvas id="allocChartInvested"></canvas>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
