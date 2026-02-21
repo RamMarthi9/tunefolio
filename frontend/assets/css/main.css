@@ -106,14 +106,14 @@ body {
 }
 
 .kpi label {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--muted);
     letter-spacing: 0.04em;
     text-transform: uppercase;
 }
 
 .kpi .value {
-    font-size: clamp(16px, 1.5vw, 22px);
+    font-size: clamp(18px, 1.8vw, 26px);
     margin-top: 6px;
     font-variant-numeric: tabular-nums;
     font-weight: 600;
@@ -200,7 +200,7 @@ body {
 
 .card-header h2 {
     margin: 0;
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 600;
     color: var(--text);
 }
@@ -589,7 +589,7 @@ td:nth-child(9) {
 
 .allocation-chart h5 {
     text-align: center;
-    font-size: 12px;
+    font-size: 14px;
     color: #64748b;
     margin: 0 0 8px;
     font-weight: 600;
@@ -608,7 +608,7 @@ td:nth-child(9) {
 
 .sector-chart h4 {
     margin: 0 0 8px 0;
-    font-size: 12px;
+    font-size: 14px;
     color: var(--muted);
     text-align: center;
     text-transform: uppercase;
@@ -670,11 +670,11 @@ td:nth-child(9) {
     background: transparent;
     border: none;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    padding: 4px 10px;
+    padding: 5px 12px;
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
 }

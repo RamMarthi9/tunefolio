@@ -338,7 +338,7 @@ function renderAllocationPie(canvasId, metric) {
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        ctx.font = isStock ? "600 8px system-ui, sans-serif" : "600 9px system-ui, sans-serif";
+        ctx.font = isStock ? "600 10px system-ui, sans-serif" : "600 11px system-ui, sans-serif";
         ctx.fillStyle = "#334155";
         ctx.textBaseline = "middle";
         ctx.textAlign = isRight ? "left" : "right";
@@ -508,7 +508,7 @@ function renderPnlBar(canvasId, dimension) {
           grid: { color: "rgba(0,0,0,0.06)" },
           ticks: {
             color: "#64748b",
-            font: { size: 9 },
+            font: { size: 11 },
             callback: (v) => "\u20B9" + Number(v).toLocaleString("en-IN")
           }
         },
@@ -516,7 +516,7 @@ function renderPnlBar(canvasId, dimension) {
           grid: { display: false },
           ticks: {
             color: "#334155",
-            font: { size: dimension === "stock" || isDrilldown ? 8 : 9 }
+            font: { size: dimension === "stock" || isDrilldown ? 10 : 11 }
           }
         }
       },
@@ -666,7 +666,7 @@ function renderValueCompareBar(canvasId, dimension) {
           grid: { color: "rgba(0,0,0,0.06)" },
           ticks: {
             color: "#64748b",
-            font: { size: 9 },
+            font: { size: 11 },
             callback: (v) => "\u20B9" + Number(v).toLocaleString("en-IN")
           }
         },
@@ -674,7 +674,7 @@ function renderValueCompareBar(canvasId, dimension) {
           grid: { display: false },
           ticks: {
             color: "#334155",
-            font: { size: isStock ? 8 : 9 }
+            font: { size: isStock ? 10 : 11 }
           }
         }
       },
@@ -682,7 +682,7 @@ function renderValueCompareBar(canvasId, dimension) {
         legend: {
           display: true,
           position: "top",
-          labels: { color: "#334155", font: { size: 10 }, boxWidth: 12 }
+          labels: { color: "#334155", font: { size: 12 }, boxWidth: 12 }
         },
         datalabels: { display: false },
         tooltip: {
@@ -1293,7 +1293,7 @@ function renderPriceLineChart(canvasId, data, symbol) {
           grid: { color: "rgba(0,0,0,0.04)" },
           ticks: {
             color: "#64748b",
-            font: { size: 9 },
+            font: { size: 11 },
             callback: (v) => "\u20B9" + Number(v).toLocaleString("en-IN")
           }
         }
@@ -1364,7 +1364,7 @@ function renderDeliveryChart(canvasId, data, symbol) {
           grid: { color: "rgba(0,0,0,0.06)" },
           ticks: {
             color: "#64748b",
-            font: { size: 8 },
+            font: { size: 10 },
             maxRotation: 45,
             maxTicksLimit: 30
           }
@@ -1374,7 +1374,7 @@ function renderDeliveryChart(canvasId, data, symbol) {
           grid: { color: "rgba(0,0,0,0.06)" },
           ticks: {
             color: "#64748b",
-            font: { size: 9 },
+            font: { size: 11 },
             callback: (v) => v >= 1000000
               ? (v / 1000000).toFixed(1) + "M"
               : v >= 1000
@@ -1388,7 +1388,7 @@ function renderDeliveryChart(canvasId, data, symbol) {
           display: true,
           labels: {
             color: "#334155",
-            font: { size: 10 },
+            font: { size: 12 },
             generateLabels: () => [
               { text: "Delivered (price up)", fillStyle: "#15803d", strokeStyle: "transparent", lineWidth: 0 },
               { text: "Settled (price up)", fillStyle: "#86efac", strokeStyle: "transparent", lineWidth: 0 },
