@@ -89,6 +89,7 @@ TuneFolio is built to answer:
 
 TuneFolio is an **explainability layer**, not a trading terminal.
 
+![Portfolio Latest View](https://github.com/RamMarthi9/tunefolio/blob/da7830d787301be0354b5014d36fcd59460c5e00/TF3.jpg)
 ---
 
 ## Product Principles
