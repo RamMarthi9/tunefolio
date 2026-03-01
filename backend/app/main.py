@@ -1,9 +1,15 @@
 import os
+import logging
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
 
 # Load .env early (before any module reads env vars)
 _env_path = Path(__file__).resolve().parents[1] / ".env"
@@ -11,6 +17,7 @@ load_dotenv(dotenv_path=_env_path)
 
 from backend.app.auth.zerodha import router as zerodha_auth_router
 from backend.app.services.db import init_db, init_holdings_snapshot_table, create_delivery_cache_table, create_trades_table
+from backend.app.services.scheduler import start_scheduler, stop_scheduler
 from backend.app.services.sessions import router as session_router
 from backend.app.services.holdings import router as holdings_router
 from backend.app.services.db import create_instruments_table
@@ -49,6 +56,11 @@ def startup_event():
     create_instruments_table()
     create_delivery_cache_table()
     create_trades_table()
+    start_scheduler()
+
+@app.on_event("shutdown")
+def shutdown_event():
+    stop_scheduler()
 
 @app.get("/api/health")
 def health_check():

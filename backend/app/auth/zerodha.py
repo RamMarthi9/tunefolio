@@ -1,6 +1,7 @@
 import os
 import requests
 import hashlib
+import threading
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, Response, Request
 from dotenv import load_dotenv
@@ -54,6 +55,10 @@ def zerodha_callback(request_token: str = Query(None)):
         user_id=user_id,
         access_token=access_token
     )
+
+    # Fire-and-forget trade sync with the fresh token
+    from backend.app.services.trade_sync import sync_trades_from_kite
+    threading.Thread(target=sync_trades_from_kite, args=(access_token,), daemon=True).start()
 
     # Set session cookie and redirect to frontend
     redirect = RedirectResponse(

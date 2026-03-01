@@ -4,10 +4,13 @@ from backend.app.services.zerodha_holdings import fetch_zerodha_holdings, fetch_
 from backend.app.services.db import (
     get_latest_snapshot_meta,
     upsert_instruments_from_holdings,
-    get_instrument
+    get_instrument,
+    get_active_access_token,
 )
 from backend.app.services.instruments import enrich_instrument_if_missing
 from backend.app.services.db import get_connection
+from backend.app.services.trade_sync import sync_trades_from_kite
+from backend.app.services.scheduler import get_scheduler_status
 
 router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
 
@@ -353,3 +356,20 @@ def realised_pnl(fy: str = None):
         "available_fys": available,
         "specific_fy": specific_fy,
     }
+
+
+# ─── Trade Sync (Kite API → trades table) ─────────────────────────────
+
+@router.get("/trade-sync/status")
+def trade_sync_status():
+    """Return scheduler status and next run times."""
+    return get_scheduler_status()
+
+
+@router.post("/trade-sync/trigger")
+def trade_sync_trigger(request: Request):
+    """Manually trigger a trade sync using the current session's token."""
+    session_id = request.cookies.get("tf_session")
+    token = get_active_access_token(session_id) if session_id else None
+    result = sync_trades_from_kite(access_token=token)
+    return result

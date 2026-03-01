@@ -117,6 +117,19 @@ def get_active_access_token(session_id: str = None):
 
     return row["access_token"]
 
+def get_any_active_access_token() -> str | None:
+    """Return the most recent active, non-expired token (for scheduler use)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT access_token FROM zerodha_sessions
+        WHERE is_active = 1 AND expires_at > datetime('now')
+        ORDER BY created_at DESC LIMIT 1
+    """)
+    row = cursor.fetchone()
+    conn.close()
+    return row["access_token"] if row else None
+
 def deactivate_session(session_id: str):
     """Deactivate a single session by its ID."""
     conn = get_connection()
