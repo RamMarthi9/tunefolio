@@ -20,6 +20,12 @@ async function fetchMargins() {
   return res.json();
 }
 
+async function fetchHistoricalHoldings() {
+  const res = await fetch(`${API_BASE}/portfolio/historical-holdings`, FETCH_OPTS);
+  if (!res.ok) return null;
+  return res.json();
+}
+
 async function fetchHoldings() {
   const res = await fetch(`${API_BASE}/portfolio/holdings`, FETCH_OPTS);
   if (!res.ok) {
@@ -76,8 +82,10 @@ function hslToHsla(hsl, alpha) {
 const chartRegistry = {};
 
 let holdingsData = [];
+let historicalData = [];
 let sectorAllocData = null;
 let currentSort = { key: null, dir: "asc" };
+let historicalSort = { key: null, dir: "asc" };
 let dropdownsInitialized = false;
 
 const globalFilter = {
@@ -975,6 +983,205 @@ function sortHoldings(key) {
 }
 
 /* ========================================
+   Historical Holdings
+======================================== */
+
+function renderHistoricalTable(data) {
+  const tbody = document.querySelector("#historical-table tbody");
+  if (!tbody) return;
+
+  tbody.innerHTML = "";
+
+  data.forEach(h => {
+    const invested = Number(h.total_invested || 0);
+    const proceeds = Number(h.total_proceeds || 0);
+    const pnl = Number(h.total_pnl || 0);
+
+    const tr = document.createElement("tr");
+    tr.classList.add("holdings-row");
+    const sectorLabel = h.sector || "\u2014";
+    const sectorClass = h.sector ? "sector-pill" : "sector-pill sector-unknown";
+
+    tr.innerHTML = `
+      <td class="expand-cell">
+        <button class="expand-btn" data-symbol="${h.symbol}" title="Show delivery volume">&#9654;</button>
+      </td>
+      <td class="symbol">${h.symbol}</td>
+      <td><span class="${sectorClass}">${sectorLabel}</span></td>
+      <td>${h.total_qty_traded}</td>
+      <td>${formatINR(h.avg_buy_price)}</td>
+      <td>${formatINR(h.avg_sell_price)}</td>
+      <td>${formatINR(invested)}</td>
+      <td>${formatINR(proceeds)}</td>
+      <td class="${pnl >= 0 ? "positive" : "negative"}">
+        ${formatINR(pnl)}
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+
+    // Delivery detail row (hidden by default)
+    {
+      const detailTr = document.createElement("tr");
+      detailTr.classList.add("delivery-detail-row", "hidden");
+      detailTr.id = `delivery-row-hist-${h.symbol}`;
+      detailTr.innerHTML = `
+        <td colspan="9" class="delivery-chart-cell">
+          <div class="delivery-chart-wrapper">
+            <div class="delivery-chart-header">
+              <h4>${h.symbol} (Exited)</h4>
+              <div class="toggle-group" id="period-toggle-hist-${h.symbol}">
+                <button class="toggle-btn" data-period="3m">3M</button>
+                <button class="toggle-btn" data-period="6m">6M</button>
+                <button class="toggle-btn active" data-period="1y">1Y</button>
+              </div>
+            </div>
+            <div class="price-chart-box">
+              <canvas id="priceChart-hist-${h.symbol}"></canvas>
+            </div>
+            <div class="delivery-chart-box">
+              <canvas id="deliveryChart-hist-${h.symbol}"></canvas>
+            </div>
+            <div class="delivery-loading" id="delivery-loading-hist-${h.symbol}">Loading delivery data...</div>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(detailTr);
+
+      // Wire expand button
+      const expandBtn = tr.querySelector(".expand-btn");
+      expandBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleHistoricalDeliveryRow(h.symbol, expandBtn);
+      });
+
+      // Wire period toggles
+      detailTr.querySelectorAll(".toggle-btn").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const period = btn.dataset.period;
+          detailTr.querySelectorAll(".toggle-btn").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          loadHistoricalDeliveryChart(h.symbol, period);
+        });
+      });
+    }
+  });
+}
+
+function toggleHistoricalDeliveryRow(symbol, expandBtn) {
+  const detailRow = document.getElementById(`delivery-row-hist-${symbol}`);
+  if (!detailRow) return;
+
+  const isHidden = detailRow.classList.contains("hidden");
+  detailRow.classList.toggle("hidden");
+  expandBtn.classList.toggle("expanded", isHidden);
+
+  if (isHidden) {
+    loadHistoricalDeliveryChart(symbol, "1y");
+  }
+}
+
+async function loadHistoricalDeliveryChart(symbol, period) {
+  const loadingEl = document.getElementById(`delivery-loading-hist-${symbol}`);
+  const deliveryCanvasId = `deliveryChart-hist-${symbol}`;
+  const priceCanvasId = `priceChart-hist-${symbol}`;
+  const periodLabel = period === "1y" ? "1 year" : period === "6m" ? "6 months" : "3 months";
+
+  if (loadingEl) {
+    loadingEl.textContent = "Loading delivery data...";
+    loadingEl.style.display = "block";
+  }
+
+  try {
+    const data = await fetchDeliveryData(symbol, period);
+    if (loadingEl) loadingEl.style.display = "none";
+
+    if (!data || data.length === 0) {
+      [deliveryCanvasId, priceCanvasId].forEach(id => {
+        if (chartRegistry[id]) { chartRegistry[id].destroy(); delete chartRegistry[id]; }
+      });
+      if (loadingEl) {
+        loadingEl.textContent = `Data not available for last ${periodLabel}`;
+        loadingEl.style.display = "block";
+      }
+      return;
+    }
+
+    renderPriceLineChart(priceCanvasId, data, symbol);
+    renderDeliveryChart(deliveryCanvasId, data, symbol);
+  } catch (err) {
+    console.error(`Delivery data error for ${symbol}:`, err);
+    if (loadingEl) {
+      loadingEl.textContent = `Data not available for last ${periodLabel}`;
+      loadingEl.style.display = "block";
+    }
+  }
+}
+
+function sortHistorical(key) {
+  if (historicalSort.key === key) {
+    historicalSort.dir = historicalSort.dir === "asc" ? "desc" : "asc";
+  } else {
+    historicalSort.key = key;
+    historicalSort.dir = (key === "sector" || key === "symbol") ? "asc" : "desc";
+  }
+
+  let data = [...historicalData];
+  if (historicalSort.key) {
+    const k = historicalSort.key;
+    data.sort((a, b) => {
+      let valA = a[k];
+      let valB = b[k];
+
+      if (k === "sector" || k === "symbol") {
+        valA = (valA || "zzz").toLowerCase();
+        valB = (valB || "zzz").toLowerCase();
+        return historicalSort.dir === "asc"
+          ? valA.localeCompare(valB)
+          : valB.localeCompare(valA);
+      }
+
+      valA = Number(valA || 0);
+      valB = Number(valB || 0);
+      return historicalSort.dir === "asc" ? valA - valB : valB - valA;
+    });
+  }
+
+  renderHistoricalTable(data);
+
+  // Update header icons
+  document.querySelectorAll("#historical-table .sortable").forEach(th => {
+    th.classList.remove("sort-asc", "sort-desc");
+    if (th.dataset.sort === historicalSort.key) {
+      th.classList.add(historicalSort.dir === "asc" ? "sort-asc" : "sort-desc");
+    }
+  });
+}
+
+async function renderHistoricalHoldings() {
+  try {
+    const res = await fetchHistoricalHoldings();
+    if (!res || !Array.isArray(res.data)) return;
+
+    historicalData = res.data;
+    renderHistoricalTable(historicalData);
+
+    document.getElementById("historical-count").innerText =
+      `${res.count} stocks`;
+
+  } catch (err) {
+    console.error("Historical holdings error:", err);
+    const tbody = document.getElementById("historical-body");
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="9" class="loading" style="color:var(--muted);">
+        No historical trade data available.
+      </td></tr>`;
+    }
+  }
+}
+
+/* ========================================
    Central Filter Pipeline
 ======================================== */
 
@@ -1455,6 +1662,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   renderHoldings();
+  renderHistoricalHoldings();
 
   // Collapsible toggles
   document.querySelectorAll(".card-header--toggle").forEach(toggle => {
@@ -1505,6 +1713,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     th.addEventListener("click", (e) => {
       e.stopPropagation();
       sortHoldings(th.dataset.sort);
+    });
+  });
+
+  // Historical holdings sortable headers
+  document.querySelectorAll("#historical-table .sortable").forEach(th => {
+    th.addEventListener("click", (e) => {
+      e.stopPropagation();
+      sortHistorical(th.dataset.sort);
     });
   });
 

@@ -114,6 +114,48 @@ def portfolio_holdings(request: Request):
         }
     }
 
+@router.get("/historical-holdings")
+def historical_holdings(request: Request):
+    """
+    Stocks fully exited (total buy qty == total sell qty from trades table),
+    excluding any stock currently held in Zerodha.
+    """
+    from backend.app.services.trades import compute_historical_holdings
+
+    # Get current holdings symbols to exclude
+    session_id = request.cookies.get("tf_session")
+    current_symbols = []
+    try:
+        holdings = fetch_zerodha_holdings(session_id)
+        current_symbols = [h["tradingsymbol"] for h in holdings]
+    except Exception:
+        pass  # If session expired, still show historical data
+
+    data = compute_historical_holdings(current_symbols)
+
+    # Enrich with sector info
+    for item in data:
+        instrument = get_instrument(item["symbol"], item["exchange"])
+        sector = instrument["sector"] if instrument and instrument["sector"] else None
+        if not sector:
+            enrich_instrument_if_missing(item["symbol"], item["exchange"])
+            instrument = get_instrument(item["symbol"], item["exchange"])
+            sector = instrument["sector"] if instrument and instrument["sector"] else None
+        item["sector"] = sector
+
+    total_pnl = sum(d["total_pnl"] for d in data)
+
+    return {
+        "count": len(data),
+        "data": data,
+        "meta": {
+            "total_invested": round(sum(d["total_invested"] for d in data), 2),
+            "total_proceeds": round(sum(d["total_proceeds"] for d in data), 2),
+            "total_pnl": round(total_pnl, 2),
+        }
+    }
+
+
 @router.get("/sector-allocation")
 def sector_allocation(request: Request):
     """

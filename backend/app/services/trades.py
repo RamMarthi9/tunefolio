@@ -232,3 +232,86 @@ def compute_realised_pnl(fy_start: str = None, fy_end: str = None) -> dict:
         "total_symbols_sold": len(by_symbol),
         "total_sells": total_sells,
     }
+
+
+# ─── Historical Holdings (Fully Exited Positions) ─────────────────────
+
+def compute_historical_holdings(current_symbols: list = None) -> list:
+    """
+    Find all symbols that were fully exited (total buy qty == total sell qty)
+    and are NOT in the current holdings list.
+
+    Returns list of dicts with avg buy/sell prices, total P&L, dates.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT symbol, trade_date, trade_type, quantity, price, exchange, isin
+        FROM trades
+        ORDER BY symbol, trade_date ASC, order_execution_time ASC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+
+    current_set = set(current_symbols or [])
+
+    # Group by symbol
+    symbol_trades = defaultdict(list)
+    for row in rows:
+        symbol_trades[row["symbol"]].append(dict(row))
+
+    results = []
+    for symbol, trades in symbol_trades.items():
+        if symbol in current_set:
+            continue
+
+        total_buy_qty = 0.0
+        total_sell_qty = 0.0
+        total_buy_value = 0.0
+        total_sell_value = 0.0
+        first_buy_date = None
+        last_sell_date = None
+        exchange = trades[0]["exchange"] if trades else "NSE"
+        isin = None
+
+        for t in trades:
+            qty = float(t["quantity"])
+            price = float(t["price"])
+
+            if t["trade_type"] == "buy":
+                total_buy_qty += qty
+                total_buy_value += qty * price
+                if not first_buy_date:
+                    first_buy_date = t["trade_date"]
+                if not isin and t.get("isin"):
+                    isin = t["isin"]
+            elif t["trade_type"] == "sell":
+                total_sell_qty += qty
+                total_sell_value += qty * price
+                last_sell_date = t["trade_date"]
+
+        # Only include fully exited positions
+        if abs(total_buy_qty - total_sell_qty) > 0.01:
+            continue
+        if total_buy_qty == 0:
+            continue
+
+        avg_buy = round(total_buy_value / total_buy_qty, 2)
+        avg_sell = round(total_sell_value / total_sell_qty, 2) if total_sell_qty else 0
+        total_pnl = round(total_sell_value - total_buy_value, 2)
+
+        results.append({
+            "symbol": symbol,
+            "exchange": exchange,
+            "isin": isin,
+            "avg_buy_price": avg_buy,
+            "avg_sell_price": avg_sell,
+            "total_qty_traded": round(total_buy_qty, 2),
+            "total_invested": round(total_buy_value, 2),
+            "total_proceeds": round(total_sell_value, 2),
+            "total_pnl": total_pnl,
+            "first_buy_date": first_buy_date,
+            "last_sell_date": last_sell_date,
+        })
+
+    return results

@@ -158,7 +158,7 @@
         <section class="card">
             <div class="card-header card-header--toggle" id="holdings-toggle">
                 <div class="card-header-left">
-                    <h2>Holdings</h2>
+                    <h2>Current Holdings</h2>
                     <span id="holdings-count"></span>
                 </div>
                 <button class="collapse-btn" aria-label="Toggle holdings table">
@@ -213,6 +213,46 @@
                         <tbody id="holdings-body">
                             <tr>
                                 <td colspan="9" class="loading">Loading holdings…</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Historical Holdings -->
+        <section class="card">
+            <div class="card-header card-header--toggle collapsed" id="historical-toggle">
+                <div class="card-header-left">
+                    <h2>Historical Holdings</h2>
+                    <span id="historical-count"></span>
+                </div>
+                <button class="collapse-btn" aria-label="Toggle historical holdings table">
+                    <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="collapsible collapsed" id="historical-collapsible">
+                <div class="table-wrapper">
+                    <table id="historical-table">
+                        <thead>
+                            <tr>
+                                <th style="width:30px;"></th>
+                                <th class="sortable" data-sort="symbol">Stock <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="sector">Sector <span class="sort-icon"></span></th>
+                                <th>Qty</th>
+                                <th>Avg Buy</th>
+                                <th>Avg Sell</th>
+                                <th class="sortable" data-sort="total_invested">Invested <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="total_proceeds">Proceeds <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="total_pnl">P&amp;L <span class="sort-icon"></span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="historical-body">
+                            <tr>
+                                <td colspan="9" class="loading">Loading historical holdings...</td>
                             </tr>
                         </tbody>
                     </table>
