@@ -133,15 +133,11 @@ def historical_holdings(request: Request):
 
     data = compute_historical_holdings(current_symbols)
 
-    # Enrich with sector info
+    # Enrich with sector info from instruments table only (no Yahoo Finance
+    # lookups — too slow for 300+ historical stocks on every request)
     for item in data:
         instrument = get_instrument(item["symbol"], item["exchange"])
-        sector = instrument["sector"] if instrument and instrument["sector"] else None
-        if not sector:
-            enrich_instrument_if_missing(item["symbol"], item["exchange"])
-            instrument = get_instrument(item["symbol"], item["exchange"])
-            sector = instrument["sector"] if instrument and instrument["sector"] else None
-        item["sector"] = sector
+        item["sector"] = instrument["sector"] if instrument and instrument["sector"] else None
 
     total_pnl = sum(d["total_pnl"] for d in data)
 

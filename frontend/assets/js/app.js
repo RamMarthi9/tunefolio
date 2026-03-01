@@ -1160,9 +1160,19 @@ function sortHistorical(key) {
 }
 
 async function renderHistoricalHoldings() {
+  const tbody = document.getElementById("historical-body");
   try {
     const res = await fetchHistoricalHoldings();
-    if (!res || !Array.isArray(res.data)) return;
+    if (!res || !Array.isArray(res.data)) {
+      console.warn("Historical holdings: empty or invalid response", res);
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="9" class="loading" style="color:var(--muted);">
+          No historical trade data available.
+        </td></tr>`;
+      }
+      document.getElementById("historical-count").innerText = "0 stocks";
+      return;
+    }
 
     historicalData = res.data;
     renderHistoricalTable(historicalData);
@@ -1172,7 +1182,6 @@ async function renderHistoricalHoldings() {
 
   } catch (err) {
     console.error("Historical holdings error:", err);
-    const tbody = document.getElementById("historical-body");
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="9" class="loading" style="color:var(--muted);">
         No historical trade data available.
