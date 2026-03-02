@@ -251,6 +251,40 @@ body {
     z-index: 2;
 }
 
+.historical-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.historical-filter-bar label {
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 500;
+}
+
+.historical-filter-bar select {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    padding: 5px 10px;
+    cursor: pointer;
+}
+
+.historical-filter-bar select:focus {
+    outline: none;
+    border-color: var(--accent, #3b82f6);
+}
+
+.delivery-chart-header .toggle-btn {
+    padding: 4px 8px;
+    font-size: 11px;
+}
+
 .collapsible.collapsed {
     max-height: 0;
     opacity: 0;

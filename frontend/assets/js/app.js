@@ -20,8 +20,9 @@ async function fetchMargins() {
   return res.json();
 }
 
-async function fetchHistoricalHoldings() {
-  const res = await fetch(`${API_BASE}/portfolio/historical-holdings`, FETCH_OPTS);
+async function fetchHistoricalHoldings(fy = "") {
+  const fyParam = fy ? `?fy=${fy}` : "";
+  const res = await fetch(`${API_BASE}/portfolio/historical-holdings${fyParam}`, FETCH_OPTS);
   if (!res.ok) return null;
   return res.json();
 }
@@ -899,6 +900,9 @@ function renderHoldingsTable(data) {
                 <button class="toggle-btn" data-period="3m">3M</button>
                 <button class="toggle-btn" data-period="6m">6M</button>
                 <button class="toggle-btn active" data-period="1y">1Y</button>
+                <button class="toggle-btn" data-period="2y">2Y</button>
+                <button class="toggle-btn" data-period="3y">3Y</button>
+                <button class="toggle-btn" data-period="all">All</button>
               </div>
             </div>
             <div class="price-chart-box">
@@ -1036,6 +1040,9 @@ function renderHistoricalTable(data) {
                 <button class="toggle-btn" data-period="3m">3M</button>
                 <button class="toggle-btn" data-period="6m">6M</button>
                 <button class="toggle-btn active" data-period="1y">1Y</button>
+                <button class="toggle-btn" data-period="2y">2Y</button>
+                <button class="toggle-btn" data-period="3y">3Y</button>
+                <button class="toggle-btn" data-period="all">All</button>
               </div>
             </div>
             <div class="price-chart-box">
@@ -1088,7 +1095,8 @@ async function loadHistoricalDeliveryChart(symbol, period) {
   const loadingEl = document.getElementById(`delivery-loading-hist-${symbol}`);
   const deliveryCanvasId = `deliveryChart-hist-${symbol}`;
   const priceCanvasId = `priceChart-hist-${symbol}`;
-  const periodLabel = period === "1y" ? "1 year" : period === "6m" ? "6 months" : "3 months";
+  const periodLabels = {"3m":"3 months","6m":"6 months","1y":"1 year","2y":"2 years","3y":"3 years","all":"all time"};
+  const periodLabel = periodLabels[period] || period;
 
   if (loadingEl) {
     loadingEl.textContent = "Loading delivery data...";
@@ -1161,10 +1169,10 @@ function sortHistorical(key) {
   });
 }
 
-async function renderHistoricalHoldings() {
+async function renderHistoricalHoldings(fy = "") {
   const tbody = document.getElementById("historical-body");
   try {
-    const res = await fetchHistoricalHoldings();
+    const res = await fetchHistoricalHoldings(fy);
     if (!res || !Array.isArray(res.data)) {
       console.warn("Historical holdings: empty or invalid response", res);
       if (tbody) {
@@ -1174,6 +1182,20 @@ async function renderHistoricalHoldings() {
       }
       document.getElementById("historical-count").innerText = "0 stocks";
       return;
+    }
+
+    // Populate FY dropdown from available_fys
+    const select = document.getElementById("fy-filter");
+    if (select && res.available_fys) {
+      const currentVal = select.value;
+      select.innerHTML = '<option value="">All Time</option>';
+      res.available_fys.slice().reverse().forEach(fyLabel => {
+        const opt = document.createElement("option");
+        opt.value = fyLabel;
+        opt.textContent = fyLabel;
+        select.appendChild(opt);
+      });
+      select.value = currentVal || "";
     }
 
     historicalData = res.data;
@@ -1423,7 +1445,8 @@ async function loadDeliveryChart(symbol, period) {
   const loadingEl = document.getElementById(`delivery-loading-${symbol}`);
   const deliveryCanvasId = `deliveryChart-${symbol}`;
   const priceCanvasId = `priceChart-${symbol}`;
-  const periodLabel = period === "1y" ? "1 year" : period === "6m" ? "6 months" : "3 months";
+  const periodLabels = {"3m":"3 months","6m":"6 months","1y":"1 year","2y":"2 years","3y":"3 years","all":"all time"};
+  const periodLabel = periodLabels[period] || period;
 
   if (loadingEl) {
     loadingEl.textContent = "Loading delivery data...";
@@ -1734,6 +1757,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       sortHistorical(th.dataset.sort);
     });
   });
+
+  // Historical holdings FY filter
+  const fyFilter = document.getElementById("fy-filter");
+  if (fyFilter) {
+    fyFilter.addEventListener("change", (e) => {
+      renderHistoricalHoldings(e.target.value);
+    });
+  }
 
   // Clear all filters button
   const clearBtn = document.getElementById("clearFiltersBtn");

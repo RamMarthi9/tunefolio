@@ -236,7 +236,7 @@ def compute_realised_pnl(fy_start: str = None, fy_end: str = None) -> dict:
 
 # ─── Historical Holdings (Fully Exited Positions) ─────────────────────
 
-def compute_historical_holdings(current_symbols: list = None) -> list:
+def compute_historical_holdings(current_symbols: list = None, fy_start: str = None, fy_end: str = None) -> list:
     """
     Find all symbols that were fully exited (total buy qty == total sell qty)
     and are NOT in the current holdings list.
@@ -298,6 +298,12 @@ def compute_historical_holdings(current_symbols: list = None) -> list:
         if total_buy_qty == 0:
             continue
 
+        # FY filter: only include positions exited within the FY window
+        if fy_start and last_sell_date and last_sell_date < fy_start:
+            continue
+        if fy_end and last_sell_date and last_sell_date > fy_end:
+            continue
+
         avg_buy = round(total_buy_value / total_buy_qty, 2)
         avg_sell = round(total_sell_value / total_sell_qty, 2) if total_sell_qty else 0
         total_pnl = round(total_sell_value - total_buy_value, 2)
@@ -308,7 +314,7 @@ def compute_historical_holdings(current_symbols: list = None) -> list:
             "isin": isin,
             "avg_buy_price": avg_buy,
             "avg_sell_price": avg_sell,
-            "total_qty_traded": round(total_buy_qty, 2),
+            "total_qty_traded": round(total_buy_qty + total_sell_qty, 2),
             "total_invested": round(total_buy_value, 2),
             "total_proceeds": round(total_sell_value, 2),
             "total_pnl": total_pnl,

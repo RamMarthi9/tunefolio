@@ -123,12 +123,13 @@ def portfolio_holdings(request: Request):
     }
 
 @router.get("/historical-holdings")
-def historical_holdings(request: Request):
+def historical_holdings(request: Request, fy: str = None):
     """
     Stocks fully exited (total buy qty == total sell qty from trades table),
     excluding any stock currently held in Zerodha.
+    Optional FY filter: ?fy=FY2024-25 filters by last_sell_date within that FY.
     """
-    from backend.app.services.trades import compute_historical_holdings
+    from backend.app.services.trades import compute_historical_holdings, get_fy_bounds, get_available_fys
 
     # Get current holdings symbols to exclude
     session_id = request.cookies.get("tf_session")
@@ -139,7 +140,12 @@ def historical_holdings(request: Request):
     except Exception:
         pass  # If session expired, still show historical data
 
-    data = compute_historical_holdings(current_symbols)
+    # Parse FY filter
+    fy_start, fy_end = None, None
+    if fy and fy.startswith("FY"):
+        fy_start, fy_end = get_fy_bounds(fy)
+
+    data = compute_historical_holdings(current_symbols, fy_start=fy_start, fy_end=fy_end)
 
     # Enrich with sector info: instruments table first, then hardcoded sector_map
     from backend.app.services.sector_map import get_sector_info
@@ -160,7 +166,8 @@ def historical_holdings(request: Request):
             "total_invested": round(sum(d["total_invested"] for d in data), 2),
             "total_proceeds": round(sum(d["total_proceeds"] for d in data), 2),
             "total_pnl": round(total_pnl, 2),
-        }
+        },
+        "available_fys": get_available_fys(),
     }
 
 
@@ -280,8 +287,12 @@ def delivery_data(symbol: str, period: str = "1y"):
     """
     from backend.app.services.delivery import fetch_delivery_data
 
-    period_map = {"1y": 365, "6m": 180, "3m": 90}
-    period_days = period_map.get(period, 365)
+    from datetime import datetime as _dt
+    period_map = {"3m": 90, "6m": 180, "1y": 365, "2y": 730, "3y": 1095}
+    if period == "all":
+        period_days = (_dt.now() - _dt(2020, 1, 1)).days
+    else:
+        period_days = period_map.get(period, 365)
 
     try:
         data = fetch_delivery_data(symbol, period_days)
@@ -313,8 +324,12 @@ def sync_delivery_data(request: Request, period: str = "1y"):
     except Exception:
         raise HTTPException(status_code=401, detail="No active Zerodha session")
 
-    period_map = {"1y": 365, "6m": 180, "3m": 90}
-    period_days = period_map.get(period, 365)
+    from datetime import datetime as _dt
+    period_map = {"3m": 90, "6m": 180, "1y": 365, "2y": 730, "3y": 1095}
+    if period == "all":
+        period_days = (_dt.now() - _dt(2020, 1, 1)).days
+    else:
+        period_days = period_map.get(period, 365)
 
     all_symbols = list(set(h["tradingsymbol"] for h in holdings))
 

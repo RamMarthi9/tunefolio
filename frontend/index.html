@@ -236,6 +236,12 @@
             </div>
 
             <div class="collapsible collapsed" id="historical-collapsible">
+                <div class="historical-filter-bar" id="historical-filter-bar">
+                    <label for="fy-filter">Financial Year:</label>
+                    <select id="fy-filter">
+                        <option value="">All Time</option>
+                    </select>
+                </div>
                 <div class="table-wrapper">
                     <table id="historical-table">
                         <thead>
@@ -243,7 +249,7 @@
                                 <th style="width:30px;"></th>
                                 <th class="sortable" data-sort="symbol">Stock <span class="sort-icon"></span></th>
                                 <th class="sortable" data-sort="sector">Sector <span class="sort-icon"></span></th>
-                                <th>Qty</th>
+                                <th>Total Qty</th>
                                 <th>Avg Buy</th>
                                 <th>Avg Sell</th>
                                 <th class="sortable" data-sort="total_invested">Invested <span class="sort-icon"></span></th>
