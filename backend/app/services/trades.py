@@ -269,6 +269,7 @@ def compute_historical_holdings(current_symbols: list = None) -> list:
         total_sell_qty = 0.0
         total_buy_value = 0.0
         total_sell_value = 0.0
+        num_trades = 0
         first_buy_date = None
         last_sell_date = None
         exchange = trades[0]["exchange"] if trades else "NSE"
@@ -277,6 +278,7 @@ def compute_historical_holdings(current_symbols: list = None) -> list:
         for t in trades:
             qty = float(t["quantity"])
             price = float(t["price"])
+            num_trades += 1
 
             if t["trade_type"] == "buy":
                 total_buy_qty += qty
@@ -310,6 +312,7 @@ def compute_historical_holdings(current_symbols: list = None) -> list:
             "total_invested": round(total_buy_value, 2),
             "total_proceeds": round(total_sell_value, 2),
             "total_pnl": total_pnl,
+            "num_trades": num_trades,
             "first_buy_date": first_buy_date,
             "last_sell_date": last_sell_date,
         })

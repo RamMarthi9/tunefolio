@@ -870,6 +870,7 @@ function renderHoldingsTable(data) {
       <td class="${pnl >= 0 ? "positive" : "negative"}">
         ${formatINR(pnl)}
       </td>
+      <td>${h.num_trades || 0}</td>
     `;
 
     // Make sector pill clickable for filtering
@@ -890,7 +891,7 @@ function renderHoldingsTable(data) {
       detailTr.classList.add("delivery-detail-row", "hidden");
       detailTr.id = `delivery-row-${h.symbol}`;
       detailTr.innerHTML = `
-        <td colspan="9" class="delivery-chart-cell">
+        <td colspan="10" class="delivery-chart-cell">
           <div class="delivery-chart-wrapper">
             <div class="delivery-chart-header">
               <h4>${h.symbol}</h4>
@@ -1016,6 +1017,7 @@ function renderHistoricalTable(data) {
       <td class="${pnl >= 0 ? "positive" : "negative"}">
         ${formatINR(pnl)}
       </td>
+      <td>${h.num_trades || 0}</td>
     `;
 
     tbody.appendChild(tr);
@@ -1026,7 +1028,7 @@ function renderHistoricalTable(data) {
       detailTr.classList.add("delivery-detail-row", "hidden");
       detailTr.id = `delivery-row-hist-${h.symbol}`;
       detailTr.innerHTML = `
-        <td colspan="9" class="delivery-chart-cell">
+        <td colspan="10" class="delivery-chart-cell">
           <div class="delivery-chart-wrapper">
             <div class="delivery-chart-header">
               <h4>${h.symbol} (Exited)</h4>
@@ -1166,7 +1168,7 @@ async function renderHistoricalHoldings() {
     if (!res || !Array.isArray(res.data)) {
       console.warn("Historical holdings: empty or invalid response", res);
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="9" class="loading" style="color:var(--muted);">
+        tbody.innerHTML = `<tr><td colspan="10" class="loading" style="color:var(--muted);">
           No historical trade data available.
         </td></tr>`;
       }
@@ -1183,7 +1185,7 @@ async function renderHistoricalHoldings() {
   } catch (err) {
     console.error("Historical holdings error:", err);
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="9" class="loading" style="color:var(--muted);">
+      tbody.innerHTML = `<tr><td colspan="10" class="loading" style="color:var(--muted);">
         No historical trade data available.
       </td></tr>`;
     }
@@ -1380,7 +1382,7 @@ async function renderHoldings() {
     // Show error in holdings table so user sees something
     const tbody = document.getElementById("holdings-body");
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="9" class="loading" style="color:#dc2626;">
+      tbody.innerHTML = `<tr><td colspan="10" class="loading" style="color:#dc2626;">
         Failed to load holdings. Please <a href="${API_BASE}/auth/zerodha/login" style="color:#2563eb;text-decoration:underline;">re-login to Zerodha</a>.
       </td></tr>`;
     }

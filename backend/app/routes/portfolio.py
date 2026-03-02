@@ -70,6 +70,13 @@ def portfolio_holdings(request: Request):
     # Ensure instruments exist & enriched
     upsert_instruments_from_holdings(holdings)
 
+    # Get trade counts per symbol from trades table
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT symbol, COUNT(*) as cnt FROM trades GROUP BY symbol")
+    trade_counts = {row["symbol"]: row["cnt"] for row in cursor.fetchall()}
+    conn.close()
+
     data = []
     total_invested = 0
     total_current = 0
@@ -101,7 +108,8 @@ def portfolio_holdings(request: Request):
             "invested_value": invested_value,
             "current_value": current_value,
             "pnl": pnl,
-            "sector": sector
+            "sector": sector,
+            "num_trades": trade_counts.get(h["tradingsymbol"], 0),
         })
 
     return {
@@ -133,11 +141,15 @@ def historical_holdings(request: Request):
 
     data = compute_historical_holdings(current_symbols)
 
-    # Enrich with sector info from instruments table only (no Yahoo Finance
-    # lookups — too slow for 300+ historical stocks on every request)
+    # Enrich with sector info: instruments table first, then hardcoded sector_map
+    from backend.app.services.sector_map import get_sector_info
     for item in data:
         instrument = get_instrument(item["symbol"], item["exchange"])
-        item["sector"] = instrument["sector"] if instrument and instrument["sector"] else None
+        sector = instrument["sector"] if instrument and instrument["sector"] else None
+        if not sector:
+            info = get_sector_info(item["symbol"])
+            sector = info.get("sector") if info.get("sector") != "Unknown" else None
+        item["sector"] = sector
 
     total_pnl = sum(d["total_pnl"] for d in data)
 
