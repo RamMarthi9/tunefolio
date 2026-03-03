@@ -23,17 +23,10 @@ def _safe_int(val) -> int:
     return int(val)
 
 
-def fetch_delivery_from_nse(symbol: str, period_days: int = 365) -> list[dict]:
-    """
-    Fetch delivery volume + price data from NSE via nselib.
-    Returns list of dicts with price direction and OHLC prices.
-    Returns empty list on any failure (NSE blocks cloud IPs, rate limits, etc.)
-    """
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=period_days)
-
-    from_date = start_date.strftime("%d-%m-%Y")
-    to_date = end_date.strftime("%d-%m-%Y")
+def _fetch_nse_chunk(symbol: str, start: datetime, end: datetime) -> list[dict]:
+    """Fetch one chunk of delivery data from NSE (max ~365 days recommended)."""
+    from_date = start.strftime("%d-%m-%Y")
+    to_date = end.strftime("%d-%m-%Y")
 
     try:
         df = capital_market.price_volume_and_deliverable_position_data(
@@ -76,15 +69,45 @@ def fetch_delivery_from_nse(symbol: str, period_days: int = 365) -> list[dict]:
         except (ValueError, KeyError, TypeError):
             continue
 
-    if not results:
+    return results
+
+
+def fetch_delivery_from_nse(symbol: str, period_days: int = 365) -> list[dict]:
+    """
+    Fetch delivery volume + price data from NSE via nselib.
+    For periods > 365 days, fetches in yearly chunks to avoid NSE API limits.
+    Returns list of dicts with price direction and OHLC prices.
+    Returns empty list on any failure (NSE blocks cloud IPs, rate limits, etc.)
+    """
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=period_days)
+
+    # Split into yearly chunks for long periods
+    all_results = []
+    chunk_start = start_date
+    while chunk_start < end_date:
+        chunk_end = min(chunk_start + timedelta(days=365), end_date)
+        chunk_data = _fetch_nse_chunk(symbol, chunk_start, chunk_end)
+        all_results.extend(chunk_data)
+        chunk_start = chunk_end + timedelta(days=1)
+
+    if not all_results:
         return []
 
+    # De-duplicate by date (chunks may overlap at boundaries)
+    seen_dates = set()
+    unique_results = []
+    for r in all_results:
+        if r["date"] not in seen_dates:
+            seen_dates.add(r["date"])
+            unique_results.append(r)
+
     try:
-        results.sort(key=lambda x: datetime.strptime(x["date"], "%d-%b-%Y"))
+        unique_results.sort(key=lambda x: datetime.strptime(x["date"], "%d-%b-%Y"))
     except ValueError:
         pass
 
-    return results
+    return unique_results
 
 
 def fetch_and_cache_delivery(symbol: str, period_days: int = 365) -> list[dict]:
@@ -102,17 +125,19 @@ def fetch_delivery_data(symbol: str, period_days: int = 365) -> list[dict]:
     """
     Primary function called by the API endpoint.
     1. Try DB cache first (always fast)
-    2. If cache empty, try live NSE fetch + cache it
-    3. Return whatever we have
+    2. If cache seems incomplete for the requested period, try live NSE fetch
+    3. Return whatever we have (cache may have partial data for long periods)
     """
-    # 1. Check cache
+    # 1. Check cache — always return what we have
     cached = get_delivery_cache(symbol, period_days)
-    if cached:
-        return cached
 
-    # 2. Cache miss — try live fetch (works locally, fails on Render)
-    live_data = fetch_and_cache_delivery(symbol, period_days)
-    if live_data:
-        return live_data
+    # 2. If cache empty or has fewer data points than expected for this period,
+    #    try live NSE fetch to supplement (works locally, may fail on Render)
+    expected_min_days = period_days * 0.5  # ~50% of trading days in the range
+    if not cached or (period_days > 365 and len(cached) < expected_min_days * 0.3):
+        live_data = fetch_and_cache_delivery(symbol, period_days)
+        if live_data:
+            # Re-read from cache (now merged with new data)
+            cached = get_delivery_cache(symbol, period_days)
 
-    return []
+    return cached or []

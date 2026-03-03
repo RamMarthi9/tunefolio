@@ -147,15 +147,51 @@ def historical_holdings(request: Request, fy: str = None):
 
     data = compute_historical_holdings(current_symbols, fy_start=fy_start, fy_end=fy_end)
 
-    # Enrich with sector info: instruments table first, then hardcoded sector_map
+    # Step 1: Insert historical symbols into instruments table (INSERT OR IGNORE)
+    # so they exist for sector enrichment to work
+    conn = get_connection()
+    cursor = conn.cursor()
+    for item in data:
+        cursor.execute("""
+            INSERT OR IGNORE INTO instruments (symbol, exchange, isin)
+            VALUES (?, ?, ?)
+        """, (item["symbol"], item["exchange"], item.get("isin")))
+    conn.commit()
+    conn.close()
+
+    # Step 2: Enrich with sector info from instruments table + sector_map
     from backend.app.services.sector_map import get_sector_info
+    from backend.app.services.instruments import enrich_instrument_if_missing
+    missing_sectors = []
     for item in data:
         instrument = get_instrument(item["symbol"], item["exchange"])
         sector = instrument["sector"] if instrument and instrument["sector"] else None
         if not sector:
             info = get_sector_info(item["symbol"])
-            sector = info.get("sector") if info.get("sector") != "Unknown" else None
+            if info.get("sector") and info["sector"] != "Unknown":
+                sector = info["sector"]
+                # Also persist to instruments table
+                from backend.app.services.db import update_instrument_sector
+                update_instrument_sector(item["symbol"], item["exchange"],
+                                         info["sector"], info.get("industry", "Unknown"))
+            else:
+                missing_sectors.append((item["symbol"], item["exchange"]))
         item["sector"] = sector
+
+    # Step 3: Background-enrich missing sectors via Yahoo Finance
+    # (results available on next page load)
+    if missing_sectors:
+        import threading
+        def _bg_enrich(pairs):
+            import logging
+            log = logging.getLogger("sector_enrich")
+            for sym, exch in pairs:
+                try:
+                    enrich_instrument_if_missing(sym, exch)
+                    log.info(f"Enriched sector for {sym}")
+                except Exception:
+                    pass
+        threading.Thread(target=_bg_enrich, args=(missing_sectors,), daemon=True).start()
 
     total_pnl = sum(d["total_pnl"] for d in data)
 
@@ -308,7 +344,7 @@ def delivery_data(symbol: str, period: str = "1y"):
 
 
 @router.post("/delivery-data/sync")
-def sync_delivery_data(request: Request, period: str = "1y"):
+def sync_delivery_data(request: Request, period: str = "all"):
     """
     Sync delivery data for ALL holdings from NSE into DB cache.
     Call this from local machine daily (NSE blocks cloud IPs).
