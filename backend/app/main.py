@@ -70,6 +70,8 @@ def health_check():
     return {"status": "TuneFolio backend running"}
 
 # Serve frontend static files (MUST be LAST — acts as catch-all)
-_frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
-if _frontend_dir.is_dir():
-    app.mount("/", StaticFiles(directory=str(_frontend_dir), html=True), name="frontend")
+# Skip on Vercel — static files are served by Vercel CDN from public/
+if not os.getenv("VERCEL"):
+    _frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
+    if _frontend_dir.is_dir():
+        app.mount("/", StaticFiles(directory=str(_frontend_dir), html=True), name="frontend")

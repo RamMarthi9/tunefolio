@@ -1,7 +1,7 @@
 {
   "version": 2,
+  "framework": null,
   "buildCommand": "mkdir -p public && cp -r frontend/* public/",
-  "outputDirectory": "public",
   "functions": {
     "api/index.py": {
       "maxDuration": 60
