@@ -397,6 +397,68 @@ def sync_delivery_data(request: Request, period: str = "all"):
     }
 
 
+# ─── Per-Symbol Trades (for chart markers) ─────────────────────────
+
+@router.get("/trades")
+def get_trades_by_symbol(symbol: str):
+    """
+    Return individual trade records for a symbol, grouped by date.
+    Used by the frontend to render buy/sell markers and variable-density
+    fill on the price line chart.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT trade_date, trade_type, quantity, price
+        FROM trades
+        WHERE symbol = ?
+        ORDER BY trade_date ASC, order_execution_time ASC
+    """, (symbol,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Group by date, separate buys and sells
+    from collections import OrderedDict
+    by_date = OrderedDict()
+    for r in rows:
+        d = r["trade_date"]
+        if d not in by_date:
+            by_date[d] = {"buys": [], "sells": []}
+        entry = {"quantity": r["quantity"], "price": r["price"]}
+        if r["trade_type"] == "buy":
+            by_date[d]["buys"].append(entry)
+        else:
+            by_date[d]["sells"].append(entry)
+
+    trades = []
+    cumulative_qty = []
+    running_qty = 0
+
+    for date, info in by_date.items():
+        buy_qty = sum(b["quantity"] for b in info["buys"])
+        sell_qty = sum(s["quantity"] for s in info["sells"])
+        net = buy_qty - sell_qty
+        running_qty += net
+
+        trades.append({
+            "date": date,
+            "buys": info["buys"],
+            "sells": info["sells"],
+            "net_qty": round(net, 2),
+        })
+        cumulative_qty.append({
+            "date": date,
+            "qty_after": round(running_qty, 2),
+        })
+
+    return {
+        "symbol": symbol,
+        "count": len(trades),
+        "trades": trades,
+        "cumulative_qty": cumulative_qty,
+    }
+
+
 # ─── Trades Import & Realised P&L ────────────────────────────────────
 
 @router.post("/trades/import")

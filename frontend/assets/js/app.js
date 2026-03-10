@@ -1135,7 +1135,10 @@ async function loadHistoricalDeliveryChart(symbol, period) {
   }
 
   try {
-    const data = await fetchDeliveryData(symbol, period);
+    const [data, tradeData] = await Promise.all([
+      fetchDeliveryData(symbol, period),
+      fetchTradesForSymbol(symbol)
+    ]);
     if (loadingEl) loadingEl.style.display = "none";
 
     if (!data || data.length === 0) {
@@ -1149,7 +1152,7 @@ async function loadHistoricalDeliveryChart(symbol, period) {
       return;
     }
 
-    renderPriceLineChart(priceCanvasId, data, symbol);
+    renderPriceLineChart(priceCanvasId, data, symbol, tradeData);
     renderDeliveryChart(deliveryCanvasId, data, symbol);
   } catch (err) {
     console.error(`Delivery data error for ${symbol}:`, err);
@@ -1447,6 +1450,7 @@ async function renderHoldings() {
 ======================================== */
 
 const deliveryCache = {};
+const tradeCache = {};
 
 async function fetchDeliveryData(symbol, period = "1y") {
   const cacheKey = `${symbol}_${period}`;
@@ -1457,6 +1461,26 @@ async function fetchDeliveryData(symbol, period = "1y") {
   const json = await res.json();
   deliveryCache[cacheKey] = json.data;
   return json.data;
+}
+
+async function fetchTradesForSymbol(symbol) {
+  if (tradeCache[symbol]) return tradeCache[symbol];
+  try {
+    const res = await fetch(`${API_BASE}/portfolio/trades?symbol=${symbol}`, FETCH_OPTS);
+    if (!res.ok) return null;
+    const json = await res.json();
+    tradeCache[symbol] = json;
+    return json;
+  } catch (e) {
+    console.warn(`Failed to fetch trades for ${symbol}:`, e);
+    return null;
+  }
+}
+
+function isoToDisplayDate(isoDate) {
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const [y, m, d] = isoDate.split("-");
+  return `${d}-${months[parseInt(m, 10) - 1]}-${y}`;
 }
 
 function toggleDeliveryRow(symbol, expandBtn) {
@@ -1485,7 +1509,10 @@ async function loadDeliveryChart(symbol, period) {
   }
 
   try {
-    const data = await fetchDeliveryData(symbol, period);
+    const [data, tradeData] = await Promise.all([
+      fetchDeliveryData(symbol, period),
+      fetchTradesForSymbol(symbol)
+    ]);
     if (loadingEl) loadingEl.style.display = "none";
 
     if (!data || data.length === 0) {
@@ -1500,7 +1527,7 @@ async function loadDeliveryChart(symbol, period) {
       return;
     }
 
-    renderPriceLineChart(priceCanvasId, data, symbol);
+    renderPriceLineChart(priceCanvasId, data, symbol, tradeData);
     renderDeliveryChart(deliveryCanvasId, data, symbol);
   } catch (err) {
     console.error(`Delivery data error for ${symbol}:`, err);
@@ -1511,7 +1538,66 @@ async function loadDeliveryChart(symbol, period) {
   }
 }
 
-function renderPriceLineChart(canvasId, data, symbol) {
+/* ── Variable-density fill plugin ──
+   Draws the area under the price line with opacity proportional to
+   the number of shares held at each point (from cumulative trade data). */
+const variableFillPlugin = {
+  id: "variableFill",
+
+  beforeDatasetDraw(chart, args) {
+    if (args.index !== 0) return;
+    const ds = chart.data.datasets[0];
+    if (!ds._fillSegments) return;
+    // Suppress the default fill — we draw our own in afterDatasetDraw
+    ds._origFill = ds.fill;
+    ds.fill = false;
+  },
+
+  afterDatasetDraw(chart, args) {
+    if (args.index !== 0) return;
+    const ds = chart.data.datasets[0];
+    if (!ds._fillSegments) return;
+
+    // Restore fill flag so tooltips etc. still reference it
+    ds.fill = ds._origFill !== undefined ? ds._origFill : true;
+
+    const meta = chart.getDatasetMeta(0);
+    const points = meta.data;
+    if (!points || points.length === 0) return;
+
+    const yScale = chart.scales.y;
+    const bottom = yScale.bottom;
+    const { left, top, right, bottom: areaBottom } = chart.chartArea;
+    const ctx = chart.ctx;
+    const segments = ds._fillSegments;
+    const base = ds._fillBaseColor;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(left, top, right - left, areaBottom - top);
+    ctx.clip();
+
+    for (const seg of segments) {
+      const { startIdx, endIdx, opacity } = seg;
+      if (opacity <= 0) continue;
+      const si = Math.max(0, Math.min(startIdx, points.length - 1));
+      const ei = Math.max(0, Math.min(endIdx, points.length - 1));
+
+      ctx.beginPath();
+      ctx.moveTo(points[si].x, bottom);
+      for (let i = si; i <= ei; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+      ctx.lineTo(points[ei].x, bottom);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(${base.r}, ${base.g}, ${base.b}, ${opacity})`;
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+};
+
+function renderPriceLineChart(canvasId, data, symbol, tradeData) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
 
@@ -1529,36 +1615,162 @@ function renderPriceLineChart(canvasId, data, symbol) {
   }
   canvas.parentElement.style.display = "block";
 
-  // Color gradient: green if overall up, red if down
+  // Color: green if overall up, red if down
   const firstPrice = closePrices.find(p => p > 0) || 0;
   const lastPrice = closePrices[closePrices.length - 1] || 0;
   const isUp = lastPrice >= firstPrice;
   const lineColor = isUp ? "#16a34a" : "#dc2626";
-  const fillColor = isUp ? "rgba(22, 163, 106, 0.08)" : "rgba(220, 38, 38, 0.08)";
+  const defaultFillColor = isUp ? "rgba(22, 163, 106, 0.08)" : "rgba(220, 38, 38, 0.08)";
+
+  // ── Build trade marker datasets ──
+  const dateIndexMap = {};
+  labels.forEach((label, idx) => { dateIndexMap[label] = idx; });
+
+  const buyPoints = [];
+  const sellPoints = [];
+  let hasTradeSegments = false;
+
+  if (tradeData && tradeData.trades) {
+    for (const t of tradeData.trades) {
+      const displayDate = isoToDisplayDate(t.date);
+      const idx = dateIndexMap[displayDate];
+      if (idx === undefined) continue;
+
+      const priceAtPoint = closePrices[idx];
+      if (!priceAtPoint) continue;
+
+      if (t.buys && t.buys.length > 0) {
+        const totalQty = t.buys.reduce((s, b) => s + b.quantity, 0);
+        const avgPrice = t.buys.reduce((s, b) => s + b.quantity * b.price, 0) / totalQty;
+        buyPoints.push({
+          x: idx, y: priceAtPoint,
+          tradeQty: totalQty, tradePrice: avgPrice,
+          tradeDate: displayDate, tradeType: "BUY"
+        });
+      }
+      if (t.sells && t.sells.length > 0) {
+        const totalQty = t.sells.reduce((s, b) => s + b.quantity, 0);
+        const avgPrice = t.sells.reduce((s, b) => s + b.quantity * b.price, 0) / totalQty;
+        sellPoints.push({
+          x: idx, y: priceAtPoint,
+          tradeQty: totalQty, tradePrice: avgPrice,
+          tradeDate: displayDate, tradeType: "SELL"
+        });
+      }
+    }
+  }
+
+  // ── Build variable-density fill segments ──
+  const MIN_OPACITY = 0.04;
+  const MAX_OPACITY = 0.28;
+
+  const priceDataset = {
+    label: "Close Price",
+    data: closePrices,
+    borderColor: lineColor,
+    backgroundColor: defaultFillColor,
+    borderWidth: 1.5,
+    pointRadius: 0,
+    pointHitRadius: 6,
+    tension: 0.3,
+    fill: true,
+    order: 3
+  };
+
+  if (tradeData && tradeData.cumulative_qty && tradeData.cumulative_qty.length > 0) {
+    // Map trade dates → cumulative qty
+    const cumQtyByDate = {};
+    for (const c of tradeData.cumulative_qty) {
+      cumQtyByDate[isoToDisplayDate(c.date)] = c.qty_after;
+    }
+    const maxQty = Math.max(...tradeData.cumulative_qty.map(c => Math.abs(c.qty_after)), 1);
+
+    // Determine initial position from trades before visible range
+    let currentQty = 0;
+    for (const c of tradeData.cumulative_qty) {
+      const dd = isoToDisplayDate(c.date);
+      if (dateIndexMap[dd] === undefined) {
+        currentQty = c.qty_after; // trade before visible range
+      } else {
+        break;
+      }
+    }
+
+    // Build segments: one per gap between trade events
+    const segments = [];
+    let segStartIdx = 0;
+
+    for (let i = 0; i < labels.length; i++) {
+      if (cumQtyByDate[labels[i]] !== undefined) {
+        // Close previous segment
+        if (i > segStartIdx) {
+          const opacity = currentQty > 0
+            ? MIN_OPACITY + (Math.abs(currentQty) / maxQty) * (MAX_OPACITY - MIN_OPACITY)
+            : 0;
+          segments.push({ startIdx: segStartIdx, endIdx: i, opacity });
+        }
+        currentQty = cumQtyByDate[labels[i]];
+        segStartIdx = i;
+      }
+    }
+    // Final segment to end of chart
+    if (segStartIdx < labels.length - 1) {
+      const opacity = currentQty > 0
+        ? MIN_OPACITY + (Math.abs(currentQty) / maxQty) * (MAX_OPACITY - MIN_OPACITY)
+        : 0;
+      segments.push({ startIdx: segStartIdx, endIdx: labels.length - 1, opacity });
+    }
+
+    const rgb = isUp ? { r: 22, g: 163, b: 106 } : { r: 220, g: 38, b: 38 };
+    priceDataset._fillSegments = segments;
+    priceDataset._fillBaseColor = rgb;
+    priceDataset.backgroundColor = "transparent"; // plugin handles fill
+    hasTradeSegments = true;
+  }
+
+  // ── Assemble datasets ──
+  const datasets = [priceDataset];
+
+  if (buyPoints.length > 0) {
+    datasets.push({
+      label: "Buy",
+      type: "scatter",
+      data: buyPoints,
+      pointStyle: "triangle",
+      pointRadius: 7,
+      pointHoverRadius: 10,
+      backgroundColor: "#16a34a",
+      borderColor: "#fff",
+      borderWidth: 1.5,
+      order: 1
+    });
+  }
+  if (sellPoints.length > 0) {
+    datasets.push({
+      label: "Sell",
+      type: "scatter",
+      data: sellPoints,
+      pointStyle: "triangle",
+      rotation: 180,
+      pointRadius: 7,
+      pointHoverRadius: 10,
+      backgroundColor: "#dc2626",
+      borderColor: "#fff",
+      borderWidth: 1.5,
+      order: 1
+    });
+  }
 
   chartRegistry[canvasId] = new Chart(canvas, {
     type: "line",
-    data: {
-      labels: labels,
-      datasets: [{
-        label: "Close Price",
-        data: closePrices,
-        borderColor: lineColor,
-        backgroundColor: fillColor,
-        borderWidth: 1.5,
-        pointRadius: 0,
-        pointHitRadius: 6,
-        tension: 0.3,
-        fill: true
-      }]
-    },
+    data: { labels, datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       animation: { duration: 400 },
       scales: {
         x: {
-          display: false // Hide x-axis — delivery chart below shares the same dates
+          display: false // delivery chart below shares the same dates
         },
         y: {
           position: "right",
@@ -1575,13 +1787,29 @@ function renderPriceLineChart(canvasId, data, symbol) {
         datalabels: { display: false },
         tooltip: {
           callbacks: {
-            title: (items) => items[0].label,
-            label: (ctx) => `Close: \u20B9${ctx.parsed.y.toLocaleString("en-IN")}`
+            title: (items) => {
+              const item = items[0];
+              if (item.dataset.label === "Buy" || item.dataset.label === "Sell") {
+                return item.raw.tradeDate;
+              }
+              return item.label;
+            },
+            label: (ctx) => {
+              if (ctx.dataset.label === "Buy" || ctx.dataset.label === "Sell") {
+                const r = ctx.raw;
+                return [
+                  `${r.tradeType}: ${r.tradeQty} shares`,
+                  `Avg Price: \u20B9${r.tradePrice.toLocaleString("en-IN", {minimumFractionDigits: 2})}`,
+                  `Close: \u20B9${r.y.toLocaleString("en-IN")}`
+                ];
+              }
+              return `Close: \u20B9${ctx.parsed.y.toLocaleString("en-IN")}`;
+            }
           }
         }
       }
     },
-    plugins: [ChartDataLabels]
+    plugins: [ChartDataLabels, variableFillPlugin]
   });
 }
 
