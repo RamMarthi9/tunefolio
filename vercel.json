@@ -5,7 +5,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 60,
-      "excludeFiles": "{backend/data/**,.claude/**,frontend/**,*.md}"
+      "excludeFiles": "{backend/data/*.csv,backend/data/*.xlsx,backend/data/tunefolio.db,.claude/**,frontend/**,*.md}"
     }
   },
   "rewrites": [
