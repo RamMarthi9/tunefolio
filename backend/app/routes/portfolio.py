@@ -24,6 +24,151 @@ except ImportError:
 
 router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
 
+
+# ─── Daily P&L ─────────────────────────────────────────────────────
+
+@router.get("/daily-pnl")
+def daily_pnl(request: Request):
+    """
+    After 5 PM IST  → today's P&L  (Kite holdings change + today's realised trades)
+    Before 5 PM IST → yesterday's P&L (from delivery cache + yesterday's realised trades)
+    """
+    import pytz
+    from datetime import datetime as _dt, timedelta
+
+    IST = pytz.timezone("Asia/Kolkata")
+    now_ist = _dt.now(IST)
+    after_5pm = now_ist.hour >= 17
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    if after_5pm:
+        # ── Today's P&L ──
+        label = "Today's P&L"
+
+        # 1. Unrealised daily change from Kite API (last_price − close_price)
+        #    close_price = previous trading day close (Kite field)
+        session_id = request.cookies.get("tf_session")
+        unrealised_daily = 0.0
+        stock_count = 0
+        per_stock = []
+        try:
+            holdings = fetch_zerodha_holdings(session_id)
+            for h in holdings:
+                prev_close = h.get("close_price", 0) or 0
+                last_price = h.get("last_price", 0) or 0
+                qty = h.get("quantity", 0) or 0
+                change = (last_price - prev_close) * qty
+                unrealised_daily += change
+                stock_count += 1
+                if abs(change) > 0.01:
+                    per_stock.append({
+                        "symbol": h["tradingsymbol"],
+                        "change": round(change, 2),
+                        "prev_close": prev_close,
+                        "last_price": last_price,
+                        "qty": qty,
+                    })
+        except Exception:
+            pass  # no active session → unrealised stays 0
+
+        # 2. Today's realised P&L from trades table
+        today_str = now_ist.strftime("%Y-%m-%d")
+        from backend.app.services.trades import compute_realised_pnl
+        realised_result = compute_realised_pnl(today_str, today_str)
+        realised_daily = realised_result["total_realised_pnl"]
+
+        return {
+            "label": label,
+            "date": today_str,
+            "unrealised_daily": round(unrealised_daily, 2),
+            "realised_daily": round(realised_daily, 2),
+            "total_daily_pnl": round(unrealised_daily + realised_daily, 2),
+            "stock_count": stock_count,
+            "top_movers": sorted(per_stock, key=lambda x: abs(x["change"]), reverse=True)[:5],
+        }
+
+    else:
+        # ── Yesterday's P&L ──
+        label = "Yesterday's P&L"
+
+        # Get current holding quantities (Kite API or fallback to snapshot)
+        holdings_qty = {}
+        session_id = request.cookies.get("tf_session")
+        try:
+            holdings = fetch_zerodha_holdings(session_id)
+            for h in holdings:
+                holdings_qty[h["tradingsymbol"]] = h["quantity"]
+        except Exception:
+            conn2 = get_connection()
+            c2 = conn2.cursor()
+            c2.execute("""
+                SELECT tradingsymbol, quantity FROM holdings_snapshots
+                WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM holdings_snapshots)
+            """)
+            for r in c2.fetchall():
+                holdings_qty[r["tradingsymbol"]] = r["quantity"]
+            conn2.close()
+
+        if not holdings_qty:
+            conn.close()
+            return {
+                "label": label, "date": None,
+                "unrealised_daily": 0, "realised_daily": 0,
+                "total_daily_pnl": 0, "stock_count": 0, "top_movers": [],
+            }
+
+        # For each holding, get its last 2 close prices from delivery_cache
+        unrealised_daily = 0.0
+        per_stock = []
+        ref_date = None  # track the most recent date we used
+
+        for sym, qty in holdings_qty.items():
+            cursor.execute("""
+                SELECT trade_date, close_price FROM delivery_cache
+                WHERE symbol = ? ORDER BY trade_date DESC LIMIT 2
+            """, (sym,))
+            rows = cursor.fetchall()
+            if len(rows) < 2:
+                continue
+            lp = rows[0]["close_price"]
+            pp = rows[1]["close_price"]
+            day = rows[0]["trade_date"]
+            if not ref_date or day > ref_date:
+                ref_date = day
+            if pp and pp > 0:
+                change = (lp - pp) * qty
+                unrealised_daily += change
+                if abs(change) > 0.01:
+                    per_stock.append({
+                        "symbol": sym,
+                        "change": round(change, 2),
+                        "prev_close": pp,
+                        "last_price": lp,
+                        "qty": qty,
+                    })
+
+        conn.close()
+
+        # Realised trades on the reference date
+        from backend.app.services.trades import compute_realised_pnl
+        realised_daily = 0.0
+        if ref_date:
+            realised_result = compute_realised_pnl(ref_date, ref_date)
+            realised_daily = realised_result["total_realised_pnl"]
+
+        return {
+            "label": label,
+            "date": ref_date,
+            "unrealised_daily": round(unrealised_daily, 2),
+            "realised_daily": round(realised_daily, 2),
+            "total_daily_pnl": round(unrealised_daily + realised_daily, 2),
+            "stock_count": len(holdings_qty),
+            "top_movers": sorted(per_stock, key=lambda x: abs(x["change"]), reverse=True)[:5],
+        }
+
+
 @router.get("/overview")
 def portfolio_overview(request: Request):
     """

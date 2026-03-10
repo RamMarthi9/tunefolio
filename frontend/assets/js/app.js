@@ -20,6 +20,12 @@ async function fetchMargins() {
   return res.json();
 }
 
+async function fetchDailyPnl() {
+  const res = await fetch(`${API_BASE}/portfolio/daily-pnl`, FETCH_OPTS);
+  if (!res.ok) return null;
+  return res.json();
+}
+
 async function fetchHistoricalHoldings(fy = "") {
   const fyParam = fy ? `?fy=${fy}` : "";
   const res = await fetch(`${API_BASE}/portfolio/historical-holdings${fyParam}`, FETCH_OPTS);
@@ -1431,6 +1437,29 @@ async function renderHoldings() {
       }
     } catch (e) {
       console.warn("Margins fetch failed:", e);
+    }
+
+    /* -------- DAILY P&L KPI -------- */
+    try {
+      const dpnl = await fetchDailyPnl();
+      if (dpnl) {
+        const labelEl = document.getElementById("kpi-daily-label");
+        const valueEl = document.getElementById("kpi-daily-pnl");
+        if (labelEl) labelEl.innerText = dpnl.label;
+        if (valueEl) {
+          valueEl.innerText = formatINR(dpnl.total_daily_pnl);
+          valueEl.className = "value " + (dpnl.total_daily_pnl >= 0 ? "positive" : "negative");
+
+          // Tooltip with breakdown
+          const parts = [];
+          if (dpnl.unrealised_daily) parts.push("Unrealised: " + formatINR(dpnl.unrealised_daily));
+          if (dpnl.realised_daily) parts.push("Realised: " + formatINR(dpnl.realised_daily));
+          if (dpnl.date) parts.push(dpnl.date);
+          valueEl.title = parts.join(" | ");
+        }
+      }
+    } catch (e) {
+      console.warn("Daily P&L fetch failed:", e);
     }
 
   } catch (err) {
