@@ -1763,7 +1763,16 @@ function renderPriceLineChart(canvasId, data, symbol, tradeData) {
       backgroundColor: "#16a34a",
       borderColor: "#fff",
       borderWidth: 1.5,
-      order: 1
+      order: 1,
+      datalabels: {
+        display: true,
+        align: "top",
+        anchor: "end",
+        offset: 2,
+        color: "#16a34a",
+        font: { size: 9, weight: "bold" },
+        formatter: (value) => value.tradeQty
+      }
     });
   }
   if (sellPoints.length > 0) {
@@ -1778,7 +1787,16 @@ function renderPriceLineChart(canvasId, data, symbol, tradeData) {
       backgroundColor: "#dc2626",
       borderColor: "#fff",
       borderWidth: 1.5,
-      order: 1
+      order: 1,
+      datalabels: {
+        display: true,
+        align: "bottom",
+        anchor: "end",
+        offset: 2,
+        color: "#dc2626",
+        font: { size: 9, weight: "bold" },
+        formatter: (value) => value.tradeQty
+      }
     });
   }
 
