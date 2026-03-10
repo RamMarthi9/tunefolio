@@ -1,12 +1,19 @@
+import os
 import sqlite3
 import shutil
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parents[2] / "data" / "tunefolio.db"
-SEED_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "tunefolio.seed.db"
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)  # Ensure data/ dir exists (for Render deploys)
+_BASE = Path(__file__).resolve().parents[2]
+SEED_DB_PATH = _BASE / "data" / "tunefolio.seed.db"
 
-# On Render (ephemeral filesystem), restore from seed if DB doesn't exist
+# On Vercel (read-only filesystem), use /tmp for writable DB
+if os.getenv("VERCEL"):
+    DB_PATH = Path("/tmp/tunefolio.db")
+else:
+    DB_PATH = _BASE / "data" / "tunefolio.db"
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+# Restore from seed if DB doesn't exist (cold start on Vercel/Render)
 if not DB_PATH.exists() and SEED_DB_PATH.exists():
     shutil.copy2(SEED_DB_PATH, DB_PATH)
 

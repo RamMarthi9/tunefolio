@@ -56,11 +56,14 @@ def startup_event():
     create_instruments_table()
     create_delivery_cache_table()
     create_trades_table()
-    start_scheduler()
+    # APScheduler requires persistent process — skip on Vercel (serverless)
+    if not os.getenv("VERCEL"):
+        start_scheduler()
 
 @app.on_event("shutdown")
 def shutdown_event():
-    stop_scheduler()
+    if not os.getenv("VERCEL"):
+        stop_scheduler()
 
 @app.get("/api/health")
 def health_check():

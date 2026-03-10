@@ -56,9 +56,16 @@ def zerodha_callback(request_token: str = Query(None)):
         access_token=access_token
     )
 
-    # Fire-and-forget trade sync with the fresh token
+    # Sync trades with the fresh token
     from backend.app.services.trade_sync import sync_trades_from_kite
-    threading.Thread(target=sync_trades_from_kite, args=(access_token,), daemon=True).start()
+    if os.getenv("VERCEL"):
+        # Synchronous on Vercel — threads unreliable in serverless
+        try:
+            sync_trades_from_kite(access_token)
+        except Exception:
+            pass
+    else:
+        threading.Thread(target=sync_trades_from_kite, args=(access_token,), daemon=True).start()
 
     # Set session cookie and redirect to frontend
     redirect = RedirectResponse(
