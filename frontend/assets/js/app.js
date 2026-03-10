@@ -421,7 +421,8 @@ function buildPnlDataset(dimension) {
         isDrilldown: true,
         data: stocksInSector.map(h => ({
           label: h.symbol,
-          pnl: Number(h.pnl || 0)
+          pnl: Number(h.pnl || 0),
+          invested: Number(h.invested_value || 0)
         })).sort((a, b) => b.pnl - a.pnl)
       };
     }
@@ -433,7 +434,8 @@ function buildPnlDataset(dimension) {
       isDrilldown: false,
       data: filtered.map(h => ({
         label: h.symbol,
-        pnl: Number(h.pnl || 0)
+        pnl: Number(h.pnl || 0),
+        invested: Number(h.invested_value || 0)
       })).sort((a, b) => b.pnl - a.pnl)
     };
   }
@@ -442,11 +444,16 @@ function buildPnlDataset(dimension) {
   const filteredAlloc = getGloballyFilteredSectorAlloc();
   if (!filteredAlloc.by_current_value) return { isDrilldown: false, data: [] };
 
+  // Build invested lookup from by_invested_value
+  const investedMap = {};
+  (filteredAlloc.by_invested_value || []).forEach(d => { investedMap[d.sector] = d.value; });
+
   return {
     isDrilldown: false,
     data: filteredAlloc.by_current_value.map(d => ({
       label: d.sector,
-      pnl: d.profit
+      pnl: d.profit,
+      invested: investedMap[d.sector] || 0
     })).sort((a, b) => b.pnl - a.pnl)
   };
 }
@@ -465,6 +472,7 @@ function renderPnlBar(canvasId, dimension) {
 
   const labels = dataset.map(d => d.label);
   const values = dataset.map(d => d.pnl);
+  const investedValues = dataset.map(d => d.invested);
   const colors = values.map((v, i) => {
     const base = v >= 0 ? "#16a34a" : "#dc2626";
     if (!isDrilldown && dimension === "sector" && globalFilter.sectors.length > 0 &&
@@ -478,10 +486,10 @@ function renderPnlBar(canvasId, dimension) {
     return base;
   });
 
-  // Dynamic height
+  // Dynamic height — slightly more room for datalabels
   const boxEl = canvas.parentElement;
   if (boxEl) {
-    const dynamicH = Math.max(200, dataset.length * 22);
+    const dynamicH = Math.max(200, dataset.length * 24);
     boxEl.style.height = dynamicH + "px";
   }
 
@@ -500,7 +508,7 @@ function renderPnlBar(canvasId, dimension) {
       responsive: true,
       maintainAspectRatio: false,
       animation: { duration: 400 },
-      layout: { padding: 0 },
+      layout: { padding: { right: 110 } },
       indexAxis: "y",
       onClick: (event, elements) => {
         if (elements.length === 0) return;
@@ -531,10 +539,33 @@ function renderPnlBar(canvasId, dimension) {
       },
       plugins: {
         legend: { display: false },
-        datalabels: { display: false },
+        datalabels: {
+          anchor: function(ctx) {
+            return ctx.dataset.data[ctx.dataIndex] >= 0 ? "end" : "start";
+          },
+          align: function(ctx) {
+            return ctx.dataset.data[ctx.dataIndex] >= 0 ? "right" : "left";
+          },
+          font: { size: 10, weight: "600" },
+          color: function(ctx) {
+            return ctx.dataset.data[ctx.dataIndex] >= 0 ? "#16a34a" : "#dc2626";
+          },
+          formatter: function(value, ctx) {
+            const inv = investedValues[ctx.dataIndex];
+            const pct = inv ? ((value / inv) * 100).toFixed(1) : "0.0";
+            const sign = value >= 0 ? "+" : "";
+            const rupee = "\u20B9" + Math.abs(value).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+            return (value >= 0 ? "+" : "-") + rupee + "  (" + sign + pct + "%)";
+          }
+        },
         tooltip: {
           callbacks: {
-            label: (ctx) => `P&L: \u20B9${ctx.parsed.x.toLocaleString("en-IN")}`
+            label: (ctx) => {
+              const inv = investedValues[ctx.dataIndex];
+              const pct = inv ? ((ctx.parsed.x / inv) * 100).toFixed(2) : "0.00";
+              const sign = ctx.parsed.x >= 0 ? "+" : "";
+              return `P&L: \u20B9${ctx.parsed.x.toLocaleString("en-IN")} (${sign}${pct}%)`;
+            }
           }
         }
       }
