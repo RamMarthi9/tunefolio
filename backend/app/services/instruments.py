@@ -1,4 +1,9 @@
-import yfinance as yf
+# yfinance is only needed for Yahoo Finance enrichment (heavy dep, not on Vercel)
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None
+
 from backend.app.services.db import (
     get_connection,
     get_instrument,
@@ -18,6 +23,9 @@ def _yahoo_symbol(symbol: str, exchange: str) -> str:
 
 
 def fetch_sector_industry(symbol: str, exchange: str) -> tuple[str, str]:
+    if yf is None:
+        raise ValueError("yfinance not available (Vercel deployment)")
+
     yf_symbol = _yahoo_symbol(symbol, exchange)
 
     ticker = yf.Ticker(yf_symbol)

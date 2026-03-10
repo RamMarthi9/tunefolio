@@ -1,13 +1,21 @@
+import os
+import math
 from datetime import datetime, timedelta
-from nselib import capital_market
-import pandas as pd
 
 from backend.app.services.db import save_delivery_cache, get_delivery_cache
+
+# nselib/pandas only needed for live NSE fetching (not on Vercel — NSE blocks cloud IPs)
+try:
+    from nselib import capital_market
+    import pandas as pd
+except ImportError:
+    capital_market = None
+    pd = None
 
 
 def _safe_float(val) -> float:
     """Convert a value to float, stripping commas from string representations."""
-    if val is None or (isinstance(val, float) and pd.isna(val)):
+    if val is None or (isinstance(val, float) and math.isnan(val)):
         return 0.0
     if isinstance(val, str):
         return float(val.replace(",", ""))
@@ -16,7 +24,7 @@ def _safe_float(val) -> float:
 
 def _safe_int(val) -> int:
     """Convert a value to int, stripping commas from string representations."""
-    if val is None or (isinstance(val, float) and pd.isna(val)):
+    if val is None or (isinstance(val, float) and math.isnan(val)):
         return 0
     if isinstance(val, str):
         return int(float(val.replace(",", "")))
@@ -25,6 +33,9 @@ def _safe_int(val) -> int:
 
 def _fetch_nse_chunk(symbol: str, start: datetime, end: datetime) -> list[dict]:
     """Fetch one chunk of delivery data from NSE (max ~365 days recommended)."""
+    if capital_market is None:
+        return []  # nselib not available (Vercel)
+
     from_date = start.strftime("%d-%m-%Y")
     to_date = end.strftime("%d-%m-%Y")
 

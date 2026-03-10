@@ -1,13 +1,21 @@
+import os
 import logging
 import pytz
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 
 logger = logging.getLogger("tunefolio.scheduler")
 
 IST = pytz.timezone("Asia/Kolkata")
 
-_scheduler: BackgroundScheduler | None = None
+_scheduler = None
+
+# Only import APScheduler when not on Vercel (serverless has no persistent process)
+if not os.getenv("VERCEL"):
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+    except ImportError:
+        BackgroundScheduler = None
+        CronTrigger = None
 
 
 def _run_trade_sync():

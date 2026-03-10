@@ -17,7 +17,9 @@ load_dotenv(dotenv_path=_env_path)
 
 from backend.app.auth.zerodha import router as zerodha_auth_router
 from backend.app.services.db import init_db, init_holdings_snapshot_table, create_delivery_cache_table, create_trades_table
-from backend.app.services.scheduler import start_scheduler, stop_scheduler
+# Lazy import — scheduler uses APScheduler which is not available on Vercel
+if not os.getenv("VERCEL"):
+    from backend.app.services.scheduler import start_scheduler, stop_scheduler
 from backend.app.services.sessions import router as session_router
 from backend.app.services.holdings import router as holdings_router
 from backend.app.services.db import create_instruments_table

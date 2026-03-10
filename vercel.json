@@ -4,7 +4,8 @@
   "buildCommand": "mkdir -p public && cp -r frontend/* public/",
   "functions": {
     "api/index.py": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "excludeFiles": "{backend/data/**,.claude/**,frontend/**,*.md}"
     }
   },
   "rewrites": [

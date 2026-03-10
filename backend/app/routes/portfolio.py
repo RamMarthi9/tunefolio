@@ -7,10 +7,20 @@ from backend.app.services.db import (
     get_instrument,
     get_active_access_token,
 )
-from backend.app.services.instruments import enrich_instrument_if_missing
 from backend.app.services.db import get_connection
 from backend.app.services.trade_sync import sync_trades_from_kite
-from backend.app.services.scheduler import get_scheduler_status
+
+# These use heavy deps (yfinance, apscheduler) — import conditionally
+try:
+    from backend.app.services.instruments import enrich_instrument_if_missing
+except ImportError:
+    enrich_instrument_if_missing = None
+
+try:
+    from backend.app.services.scheduler import get_scheduler_status
+except ImportError:
+    def get_scheduler_status():
+        return {"running": False, "jobs": []}
 
 router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
 
@@ -94,7 +104,7 @@ def portfolio_holdings(request: Request):
         sector = instrument["sector"] if instrument and instrument["sector"] else None
 
         # Trigger enrichment if sector is still missing
-        if not sector:
+        if not sector and enrich_instrument_if_missing:
             enrich_instrument_if_missing(h["tradingsymbol"], h["exchange"])
             instrument = get_instrument(h["tradingsymbol"], h["exchange"])
             sector = instrument["sector"] if instrument and instrument["sector"] else None
@@ -161,7 +171,10 @@ def historical_holdings(request: Request, fy: str = None):
 
     # Step 2: Enrich with sector info from instruments table + sector_map
     from backend.app.services.sector_map import get_sector_info
-    from backend.app.services.instruments import enrich_instrument_if_missing
+    try:
+        from backend.app.services.instruments import enrich_instrument_if_missing as _enrich
+    except ImportError:
+        _enrich = None
     missing_sectors = []
     for item in data:
         instrument = get_instrument(item["symbol"], item["exchange"])
@@ -179,15 +192,15 @@ def historical_holdings(request: Request, fy: str = None):
         item["sector"] = sector
 
     # Step 3: Background-enrich missing sectors via Yahoo Finance
-    # (results available on next page load)
-    if missing_sectors:
+    # (results available on next page load, skipped on Vercel)
+    if missing_sectors and _enrich:
         import threading
         def _bg_enrich(pairs):
             import logging
             log = logging.getLogger("sector_enrich")
             for sym, exch in pairs:
                 try:
-                    enrich_instrument_if_missing(sym, exch)
+                    _enrich(sym, exch)
                     log.info(f"Enriched sector for {sym}")
                 except Exception:
                     pass
@@ -225,7 +238,7 @@ def sector_allocation(request: Request):
             instrument = get_instrument(h["tradingsymbol"], h["exchange"])
             sector = instrument["sector"] if instrument and instrument["sector"] else None
 
-            if not sector:
+            if not sector and enrich_instrument_if_missing:
                 enrich_instrument_if_missing(h["tradingsymbol"], h["exchange"])
                 instrument = get_instrument(h["tradingsymbol"], h["exchange"])
                 sector = instrument["sector"] if instrument and instrument["sector"] else "Unknown"
