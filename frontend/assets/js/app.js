@@ -1483,6 +1483,15 @@ function isoToDisplayDate(isoDate) {
   return `${d}-${months[parseInt(m, 10) - 1]}-${y}`;
 }
 
+function displayDateToISO(displayDate) {
+  // "01-Mar-2026" → "2026-03-01"
+  const monthMap = {Jan:"01",Feb:"02",Mar:"03",Apr:"04",May:"05",Jun:"06",
+                    Jul:"07",Aug:"08",Sep:"09",Oct:"10",Nov:"11",Dec:"12"};
+  const parts = displayDate.split("-");
+  if (parts.length !== 3) return null;
+  return `${parts[2]}-${monthMap[parts[1]] || "01"}-${parts[0]}`;
+}
+
 function toggleDeliveryRow(symbol, expandBtn) {
   const detailRow = document.getElementById(`delivery-row-${symbol}`);
   if (!detailRow) return;
@@ -1634,16 +1643,28 @@ function renderPriceLineChart(canvasId, data, symbol, tradeData) {
     for (const t of tradeData.trades) {
       const displayDate = isoToDisplayDate(t.date);
       const idx = dateIndexMap[displayDate];
-      if (idx === undefined) continue;
 
-      const priceAtPoint = closePrices[idx];
-      if (!priceAtPoint) continue;
+      // Trade is within visible range → place at exact date
+      // Trade is before visible range → place at far-left (index 0)
+      const useIdx = idx !== undefined ? idx : null;
+      const useLabel = idx !== undefined ? displayDate : labels[0];
+      const usePrice = idx !== undefined ? closePrices[idx] : closePrices[0];
+      if (!usePrice) continue;
+      // Skip trades after the visible range entirely
+      if (idx === undefined) {
+        // Check if trade date is AFTER the visible range (skip it)
+        const tradeISO = t.date; // YYYY-MM-DD
+        const lastLabel = labels[labels.length - 1];
+        // Convert last label back to ISO for comparison
+        const lastISO = displayDateToISO(lastLabel);
+        if (lastISO && tradeISO > lastISO) continue;
+      }
 
       if (t.buys && t.buys.length > 0) {
         const totalQty = t.buys.reduce((s, b) => s + b.quantity, 0);
         const avgPrice = t.buys.reduce((s, b) => s + b.quantity * b.price, 0) / totalQty;
         buyPoints.push({
-          x: idx, y: priceAtPoint,
+          x: useLabel, y: usePrice,
           tradeQty: totalQty, tradePrice: avgPrice,
           tradeDate: displayDate, tradeType: "BUY"
         });
@@ -1652,7 +1673,7 @@ function renderPriceLineChart(canvasId, data, symbol, tradeData) {
         const totalQty = t.sells.reduce((s, b) => s + b.quantity, 0);
         const avgPrice = t.sells.reduce((s, b) => s + b.quantity * b.price, 0) / totalQty;
         sellPoints.push({
-          x: idx, y: priceAtPoint,
+          x: useLabel, y: usePrice,
           tradeQty: totalQty, tradePrice: avgPrice,
           tradeDate: displayDate, tradeType: "SELL"
         });
