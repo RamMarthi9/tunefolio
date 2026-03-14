@@ -76,16 +76,20 @@
     <main class="content">
 
         <!-- Allocation (Pie Charts) -->
-        <section class="card">
+        <section class="card" data-section-id="allocation">
             <div class="card-header card-header--toggle">
                 <div class="card-header-left">
                     <h2>Allocation</h2>
                 </div>
-                <button class="collapse-btn" aria-label="Toggle allocation">
-                    <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
-                        <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
+                <div class="card-header-actions">
+                    <button class="reorder-btn reorder-up" title="Move up">▲</button>
+                    <button class="reorder-btn reorder-down" title="Move down">▼</button>
+                    <button class="collapse-btn" aria-label="Toggle allocation">
+                        <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div class="collapsible">
                 <div class="allocation-section">
@@ -114,16 +118,20 @@
         </section>
 
         <!-- Analysis (Bar Charts) -->
-        <section class="card">
+        <section class="card" data-section-id="analysis">
             <div class="card-header card-header--toggle">
                 <div class="card-header-left">
                     <h2>Analysis</h2>
                 </div>
-                <button class="collapse-btn" aria-label="Toggle analysis">
-                    <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
-                        <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
+                <div class="card-header-actions">
+                    <button class="reorder-btn reorder-up" title="Move up">▲</button>
+                    <button class="reorder-btn reorder-down" title="Move down">▼</button>
+                    <button class="collapse-btn" aria-label="Toggle analysis">
+                        <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div class="collapsible">
                 <div class="sector-grid">
@@ -159,17 +167,21 @@
         </section>
 
         <!-- Holdings -->
-        <section class="card">
+        <section class="card" data-section-id="holdings">
             <div class="card-header card-header--toggle" id="holdings-toggle">
                 <div class="card-header-left">
                     <h2>Current Holdings</h2>
                     <span id="holdings-count"></span>
                 </div>
-                <button class="collapse-btn" aria-label="Toggle holdings table">
-                    <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
-                        <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
+                <div class="card-header-actions">
+                    <button class="reorder-btn reorder-up" title="Move up">▲</button>
+                    <button class="reorder-btn reorder-down" title="Move down">▼</button>
+                    <button class="collapse-btn" aria-label="Toggle holdings table">
+                        <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
 
             <div class="collapsible" id="holdings-collapsible">
@@ -226,17 +238,21 @@
         </section>
 
         <!-- Historical Holdings -->
-        <section class="card">
+        <section class="card" data-section-id="historical">
             <div class="card-header card-header--toggle collapsed" id="historical-toggle">
                 <div class="card-header-left">
                     <h2>Historical Holdings</h2>
                     <span id="historical-count"></span>
                 </div>
-                <button class="collapse-btn" aria-label="Toggle historical holdings table">
-                    <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
-                        <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
+                <div class="card-header-actions">
+                    <button class="reorder-btn reorder-up" title="Move up">▲</button>
+                    <button class="reorder-btn reorder-down" title="Move down">▼</button>
+                    <button class="collapse-btn" aria-label="Toggle historical holdings table">
+                        <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
 
             <div class="collapsible collapsed" id="historical-collapsible">
@@ -268,6 +284,39 @@
                             </tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Portfolio Comparative Analysis -->
+        <section class="card" data-section-id="comparative">
+            <div class="card-header card-header--toggle collapsed">
+                <div class="card-header-left">
+                    <h2>Portfolio Comparative Analysis</h2>
+                </div>
+                <div class="card-header-actions">
+                    <button class="reorder-btn reorder-up" title="Move up">▲</button>
+                    <button class="reorder-btn reorder-down" title="Move down">▼</button>
+                    <button class="collapse-btn" aria-label="Toggle comparative analysis">
+                        <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="collapsible collapsed" id="comparative-collapsible">
+                <div class="comparative-controls">
+                    <div class="toggle-group" id="comparativePeriodToggle">
+                        <button class="toggle-btn" data-period="3m">3M</button>
+                        <button class="toggle-btn" data-period="6m">6M</button>
+                        <button class="toggle-btn active" data-period="1y">1Y</button>
+                        <button class="toggle-btn" data-period="2y">2Y</button>
+                        <button class="toggle-btn" data-period="3y">3Y</button>
+                    </div>
+                    <div id="indexToggles" class="index-toggles"></div>
+                </div>
+                <div class="chart-box chart-box--comparative">
+                    <canvas id="comparativeChart"></canvas>
                 </div>
             </div>
         </section>

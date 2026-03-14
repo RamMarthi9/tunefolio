@@ -16,7 +16,7 @@ _env_path = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(dotenv_path=_env_path)
 
 from backend.app.auth.zerodha import router as zerodha_auth_router
-from backend.app.services.db import init_db, init_holdings_snapshot_table, create_delivery_cache_table, create_trades_table
+from backend.app.services.db import init_db, init_holdings_snapshot_table, create_delivery_cache_table, create_trades_table, create_index_cache_table
 # Lazy import — scheduler uses APScheduler which is not available on Vercel
 if not os.getenv("VERCEL"):
     from backend.app.services.scheduler import start_scheduler, stop_scheduler
@@ -58,6 +58,7 @@ def startup_event():
     create_instruments_table()
     create_delivery_cache_table()
     create_trades_table()
+    create_index_cache_table()
     # APScheduler requires persistent process — skip on Vercel (serverless)
     if not os.getenv("VERCEL"):
         start_scheduler()

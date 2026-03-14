@@ -556,6 +556,25 @@ def sync_delivery_data(request: Request, period: str = "all"):
     }
 
 
+# ─── Portfolio Comparative Analysis ─────────────────────────────────
+
+@router.get("/comparative")
+def comparative_analysis(request: Request, period: str = "1y"):
+    """Compare portfolio returns with market indices (Nifty 50, Bank Nifty, etc.)."""
+    from backend.app.services.comparative import get_comparative_data
+    from datetime import datetime as _dt
+
+    period_map = {"3m": 90, "6m": 180, "1y": 365, "2y": 730, "3y": 1095}
+    if period == "all":
+        period_days = (_dt.now() - _dt(2020, 1, 1)).days
+    else:
+        period_days = period_map.get(period, 365)
+
+    session_id = request.cookies.get("tf_session")
+    data = get_comparative_data(period_days, session_id)
+    return data
+
+
 # ─── Per-Symbol Trades (for chart markers) ─────────────────────────
 
 @router.get("/trades")

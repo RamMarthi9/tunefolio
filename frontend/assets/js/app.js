@@ -1993,6 +1993,246 @@ function renderDeliveryChart(canvasId, data, symbol) {
 }
 
 /* ========================================
+   Section Reordering
+======================================== */
+
+const SECTION_ORDER_KEY = "tunefolio_section_order";
+
+function getSectionCards() {
+  return Array.from(document.querySelectorAll("main.content > .card[data-section-id]"));
+}
+
+function applySavedOrder() {
+  const saved = localStorage.getItem(SECTION_ORDER_KEY);
+  if (!saved) return;
+  try {
+    const order = JSON.parse(saved);
+    const container = document.querySelector("main.content");
+    if (!container) return;
+    const cards = getSectionCards();
+    const cardMap = {};
+    cards.forEach(c => { cardMap[c.dataset.sectionId] = c; });
+    // Re-append in saved order
+    order.forEach(id => {
+      if (cardMap[id]) {
+        container.appendChild(cardMap[id]);
+      }
+    });
+    // Append any cards not in saved order (new sections)
+    cards.forEach(c => {
+      if (!order.includes(c.dataset.sectionId)) {
+        container.appendChild(c);
+      }
+    });
+  } catch (e) { /* ignore corrupt data */ }
+}
+
+function saveSectionOrder() {
+  const order = getSectionCards().map(c => c.dataset.sectionId);
+  localStorage.setItem(SECTION_ORDER_KEY, JSON.stringify(order));
+}
+
+function updateReorderButtons() {
+  const cards = getSectionCards();
+  cards.forEach((card, idx) => {
+    const upBtn = card.querySelector(".reorder-up");
+    const downBtn = card.querySelector(".reorder-down");
+    if (upBtn) upBtn.disabled = idx === 0;
+    if (downBtn) downBtn.disabled = idx === cards.length - 1;
+  });
+}
+
+function initReorderButtons() {
+  document.querySelectorAll(".reorder-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const card = btn.closest(".card[data-section-id]");
+      if (!card) return;
+      const container = card.parentElement;
+
+      if (btn.classList.contains("reorder-up")) {
+        const prev = card.previousElementSibling;
+        if (prev && prev.classList.contains("card")) {
+          container.insertBefore(card, prev);
+        }
+      } else if (btn.classList.contains("reorder-down")) {
+        const next = card.nextElementSibling;
+        if (next && next.classList.contains("card")) {
+          container.insertBefore(next, card);
+        }
+      }
+
+      saveSectionOrder();
+      updateReorderButtons();
+    });
+  });
+}
+
+/* ========================================
+   Portfolio Comparative Analysis
+======================================== */
+
+const COMPARATIVE_COLORS = {
+  "Portfolio": "#2563eb",
+  "Nifty 50": "#f59e0b",
+  "Nifty 100": "#8b5cf6",
+  "Smallcap": "#ec4899",
+  "Midcap 150": "#14b8a6",
+  "Bank Nifty": "#64748b"
+};
+
+let comparativeData = null;
+let comparativeFetched = false;
+let comparativePeriod = "1y";
+let comparativeHiddenSeries = new Set();
+
+async function fetchComparativeData(period) {
+  const res = await fetch(`${API_BASE}/portfolio/comparative?period=${period}`, FETCH_OPTS);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+function populateIndexToggles(seriesKeys) {
+  const container = document.getElementById("indexToggles");
+  if (!container) return;
+  container.innerHTML = "";
+
+  seriesKeys.forEach(name => {
+    const color = COMPARATIVE_COLORS[name] || "#999";
+    const label = document.createElement("label");
+    label.className = "index-toggle-label";
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = !comparativeHiddenSeries.has(name);
+    cb.addEventListener("change", () => {
+      if (cb.checked) {
+        comparativeHiddenSeries.delete(name);
+      } else {
+        comparativeHiddenSeries.add(name);
+      }
+      renderComparativeChart();
+    });
+
+    const dot = document.createElement("span");
+    dot.className = "index-color-dot";
+    dot.style.backgroundColor = color;
+
+    label.appendChild(cb);
+    label.appendChild(dot);
+    label.appendChild(document.createTextNode(name));
+    container.appendChild(label);
+  });
+}
+
+function renderComparativeChart() {
+  if (!comparativeData || !comparativeData.dates || comparativeData.dates.length === 0) return;
+
+  const canvasId = "comparativeChart";
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  if (chartRegistry[canvasId]) {
+    chartRegistry[canvasId].destroy();
+  }
+
+  const labels = comparativeData.dates;
+  const datasets = [];
+
+  // Always show Portfolio first
+  const seriesNames = Object.keys(comparativeData.series);
+  const orderedNames = [];
+  if (seriesNames.includes("Portfolio")) orderedNames.push("Portfolio");
+  seriesNames.filter(n => n !== "Portfolio").sort().forEach(n => orderedNames.push(n));
+
+  orderedNames.forEach(name => {
+    if (comparativeHiddenSeries.has(name)) return;
+    const color = COMPARATIVE_COLORS[name] || "#999";
+    datasets.push({
+      label: name,
+      data: comparativeData.series[name],
+      borderColor: color,
+      backgroundColor: "transparent",
+      borderWidth: name === "Portfolio" ? 2.5 : 1.5,
+      pointRadius: 0,
+      pointHitRadius: 6,
+      tension: 0.3,
+      fill: false
+    });
+  });
+
+  chartRegistry[canvasId] = new Chart(canvas, {
+    type: "line",
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      interaction: {
+        mode: "index",
+        intersect: false
+      },
+      scales: {
+        x: {
+          grid: { color: "rgba(0,0,0,0.04)" },
+          ticks: {
+            color: "#64748b",
+            font: { size: 10 },
+            maxRotation: 45,
+            maxTicksLimit: 20
+          }
+        },
+        y: {
+          grid: { color: "rgba(0,0,0,0.04)" },
+          ticks: {
+            color: "#64748b",
+            font: { size: 11 },
+            callback: (v) => v.toFixed(1) + "%"
+          },
+          title: {
+            display: true,
+            text: "% Return",
+            color: "#64748b",
+            font: { size: 12 }
+          }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        datalabels: { display: false },
+        tooltip: {
+          mode: "index",
+          intersect: false,
+          callbacks: {
+            title: (items) => items[0]?.label || "",
+            label: (ctx) => {
+              const val = ctx.parsed.y;
+              const sign = val >= 0 ? "+" : "";
+              return `${ctx.dataset.label}: ${sign}${val.toFixed(2)}%`;
+            }
+          }
+        }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+}
+
+async function loadComparativeData(period) {
+  comparativePeriod = period;
+  const data = await fetchComparativeData(period);
+  if (data) {
+    comparativeData = data;
+    const seriesKeys = Object.keys(data.series || {});
+    const orderedKeys = [];
+    if (seriesKeys.includes("Portfolio")) orderedKeys.push("Portfolio");
+    seriesKeys.filter(n => n !== "Portfolio").sort().forEach(n => orderedKeys.push(n));
+    populateIndexToggles(orderedKeys);
+    renderComparativeChart();
+  }
+}
+
+/* ========================================
    Bootstrap (ORDER MATTERS)
 ======================================== */
 
@@ -2022,18 +2262,43 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  // Apply saved section order before rendering
+  applySavedOrder();
+
   renderHoldings();
   renderHistoricalHoldings();
 
-  // Collapsible toggles
+  // Section reorder buttons
+  initReorderButtons();
+  updateReorderButtons();
+
+  // Collapsible toggles (with lazy load for comparative)
   document.querySelectorAll(".card-header--toggle").forEach(toggle => {
     const panel = toggle.nextElementSibling;
     if (panel && panel.classList.contains("collapsible")) {
-      toggle.addEventListener("click", () => {
+      toggle.addEventListener("click", (e) => {
+        // Don't toggle if click was on a reorder button
+        if (e.target.closest(".reorder-btn")) return;
         toggle.classList.toggle("collapsed");
         panel.classList.toggle("collapsed");
+
+        // Lazy-load comparative data on first expand
+        if (panel.id === "comparative-collapsible" && !toggle.classList.contains("collapsed") && !comparativeFetched) {
+          comparativeFetched = true;
+          loadComparativeData(comparativePeriod);
+        }
       });
     }
+  });
+
+  // Comparative period toggle
+  document.querySelectorAll("#comparativePeriodToggle .toggle-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      document.querySelectorAll("#comparativePeriodToggle .toggle-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      loadComparativeData(btn.dataset.period);
+    });
   });
 
   // Allocation pie: Sector/Stock dimension toggle

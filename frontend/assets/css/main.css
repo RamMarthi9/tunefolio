@@ -894,3 +894,97 @@ td:nth-child(9) {
     color: var(--muted);
     font-size: 12px;
 }
+
+/* =========================
+   Section Reorder Buttons
+========================= */
+.card-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.reorder-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--muted);
+    font-size: 10px;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    line-height: 1;
+}
+
+.reorder-btn:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--text);
+    background: var(--accent-light);
+}
+
+.reorder-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+/* =========================
+   Comparative Analysis
+========================= */
+.comparative-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 8px 8px;
+    flex-wrap: wrap;
+}
+
+.index-toggles {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.index-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.index-toggle-label input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+    margin: 0;
+}
+
+.index-color-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.chart-box--comparative {
+    position: relative;
+    height: 380px;
+    padding: 0 8px 8px;
+}
+
+.chart-box--comparative canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100% !important;
+    height: 100% !important;
+}

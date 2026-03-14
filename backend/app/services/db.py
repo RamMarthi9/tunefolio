@@ -497,6 +497,62 @@ def get_delivery_cache(symbol: str, period_days: int = 365) -> list:
 
 # ─── Trades (Tradebook Import) ──────────────────────────────────────
 
+# ─── Index Cache (for benchmark comparison) ─────────────────────────
+
+def create_index_cache_table():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS index_cache (
+            index_symbol TEXT NOT NULL,
+            trade_date TEXT NOT NULL,
+            close_price REAL DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (index_symbol, trade_date)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def get_index_cache(index_symbol: str, period_days: int = 365) -> list:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT trade_date, close_price FROM index_cache
+        WHERE index_symbol = ? AND trade_date >= date('now', ?)
+        ORDER BY trade_date ASC
+    """, (index_symbol, f"-{period_days} days"))
+    rows = [{"date": r["trade_date"], "close": r["close_price"]} for r in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_index_cache_latest_date(index_symbol: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT MAX(trade_date) FROM index_cache WHERE index_symbol = ?", (index_symbol,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
+
+
+def save_index_cache_bulk(index_symbol: str, rows: list):
+    """rows: list of (trade_date, close_price)"""
+    if not rows:
+        return
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.executemany("""
+        INSERT OR IGNORE INTO index_cache (index_symbol, trade_date, close_price)
+        VALUES (?, ?, ?)
+    """, [(index_symbol, r[0], r[1]) for r in rows])
+    conn.commit()
+    conn.close()
+
+
+# ─── Trades (Tradebook Import) ──────────────────────────────────────
+
 def create_trades_table():
     conn = get_connection()
     cursor = conn.cursor()
