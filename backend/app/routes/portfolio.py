@@ -30,25 +30,33 @@ router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
 @router.get("/daily-pnl")
 def daily_pnl(request: Request):
     """
-    After 5 PM IST  → today's P&L  (Kite holdings change + today's realised trades)
-    Before 5 PM IST → yesterday's P&L (from delivery cache + yesterday's realised trades)
+    Time-aware daily P&L:
+
+    After 5 PM IST   → "Today's P&L"     (Kite: last_price − close_price)
+    Before 9 AM IST  → "Yesterday's P&L"  (Kite: same data, market hasn't opened)
+    9 AM – 5 PM IST  → "Yesterday's P&L"  (delivery cache: last 2 close prices)
+
+    The Kite API `close_price` = previous trading day's close,
+    `last_price` = current/last traded price. Between market close
+    (3:30 PM) and next market open (9:15 AM), these don't change,
+    so both post-market and pre-market use the same Kite data.
     """
     import pytz
     from datetime import datetime as _dt, timedelta
 
     IST = pytz.timezone("Asia/Kolkata")
     now_ist = _dt.now(IST)
-    after_5pm = now_ist.hour >= 17
 
-    conn = get_connection()
-    cursor = conn.cursor()
+    # Use Kite API when market is closed (after 5 PM or before 9 AM)
+    # Use delivery cache during market hours (9 AM – 5 PM)
+    use_kite = now_ist.hour >= 17 or now_ist.hour < 9
 
-    if after_5pm:
-        # ── Today's P&L ──
-        label = "Today's P&L"
+    from backend.app.services.trades import compute_realised_pnl
 
-        # 1. Unrealised daily change from Kite API (last_price − close_price)
-        #    close_price = previous trading day close (Kite field)
+    if use_kite:
+        # ── Kite API path (post-market or pre-market) ──
+        label = "Today's P&L" if now_ist.hour >= 17 else "Yesterday's P&L"
+
         session_id = request.cookies.get("tf_session")
         unrealised_daily = 0.0
         stock_count = 0
@@ -73,15 +81,19 @@ def daily_pnl(request: Request):
         except Exception:
             pass  # no active session → unrealised stays 0
 
-        # 2. Today's realised P&L from trades table
-        today_str = now_ist.strftime("%Y-%m-%d")
-        from backend.app.services.trades import compute_realised_pnl
-        realised_result = compute_realised_pnl(today_str, today_str)
+        # Realised trades: after 5 PM = today, before 9 AM = yesterday
+        if now_ist.hour >= 17:
+            trade_date = now_ist.strftime("%Y-%m-%d")
+        else:
+            # Find last trading day for realised lookup
+            trade_date = (now_ist - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        realised_result = compute_realised_pnl(trade_date, trade_date)
         realised_daily = realised_result["total_realised_pnl"]
 
         return {
             "label": label,
-            "date": today_str,
+            "date": trade_date,
             "unrealised_daily": round(unrealised_daily, 2),
             "realised_daily": round(realised_daily, 2),
             "total_daily_pnl": round(unrealised_daily + realised_daily, 2),
@@ -90,8 +102,11 @@ def daily_pnl(request: Request):
         }
 
     else:
-        # ── Yesterday's P&L ──
+        # ── Delivery cache path (market hours 9 AM – 5 PM) ──
         label = "Yesterday's P&L"
+
+        conn = get_connection()
+        cursor = conn.cursor()
 
         # Get current holding quantities (Kite API or fallback to snapshot)
         holdings_qty = {}
@@ -122,7 +137,7 @@ def daily_pnl(request: Request):
         # For each holding, get its last 2 close prices from delivery_cache
         unrealised_daily = 0.0
         per_stock = []
-        ref_date = None  # track the most recent date we used
+        ref_date = None
 
         for sym, qty in holdings_qty.items():
             cursor.execute("""
@@ -152,7 +167,6 @@ def daily_pnl(request: Request):
         conn.close()
 
         # Realised trades on the reference date
-        from backend.app.services.trades import compute_realised_pnl
         realised_daily = 0.0
         if ref_date:
             realised_result = compute_realised_pnl(ref_date, ref_date)
