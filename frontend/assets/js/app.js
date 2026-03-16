@@ -36,7 +36,7 @@ async function fetchHistoricalHoldings(fy = "") {
 async function fetchHoldings() {
   const res = await fetch(`${API_BASE}/portfolio/holdings`, FETCH_OPTS);
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
+    if ((res.status === 401 || res.status === 403) && !justAuthenticated) {
       // Session expired or invalid — redirect to re-login
       window.location.href = `${API_BASE}/auth/zerodha/login`;
       throw new Error("Session expired — redirecting to login");
@@ -2236,10 +2236,13 @@ async function loadComparativeData(period) {
    Bootstrap (ORDER MATTERS)
 ======================================== */
 
+let justAuthenticated = false;
+
 document.addEventListener("DOMContentLoaded", async () => {
   // Detect auth success redirect (?status=connected)
   const params = new URLSearchParams(window.location.search);
   if (params.get("status") === "connected") {
+    justAuthenticated = true;
     const statusEl = document.getElementById("connection-status");
     if (statusEl) {
       statusEl.textContent = "\u25cf Just connected to Zerodha";
