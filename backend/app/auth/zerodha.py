@@ -73,9 +73,10 @@ def zerodha_callback(request_token: str = Query(None)):
         status_code=302
     )
     # Session cookie: no Max-Age/Expires = browser-session cookie (deleted on browser close)
+    # Encode access_token in cookie so it survives Vercel's ephemeral /tmp
     redirect.set_cookie(
         key="tf_session",
-        value=session_id,
+        value=f"{session_id}:{access_token}",
         httponly=True,
         samesite="lax",
         secure=FRONTEND_URL.startswith("https"),

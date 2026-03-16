@@ -72,57 +72,71 @@ def save_zerodha_session(user_id: str, access_token: str):
 
 def get_active_zerodha_session(session_id: str = None):
     """Look up an active session by its cookie session_id."""
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    if session_id:
-        cursor.execute("""
-            SELECT id, user_id, created_at, expires_at
-            FROM zerodha_sessions
-            WHERE id = ? AND is_active = 1
-            LIMIT 1
-        """, (session_id,))
-    else:
-        # Fallback: no cookie provided — return nothing (forces login)
-        conn.close()
+    if not session_id:
         return None
 
+    sid, token_fallback = _parse_session_cookie(session_id)
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, user_id, created_at, expires_at
+        FROM zerodha_sessions
+        WHERE id = ? AND is_active = 1
+        LIMIT 1
+    """, (sid,))
     row = cursor.fetchone()
     conn.close()
 
-    if not row:
-        return None
+    if row:
+        return {
+            "session_id": row["id"],
+            "user_id": row["user_id"],
+            "created_at": row["created_at"],
+            "expires_at": row["expires_at"]
+        }
 
-    return {
-        "session_id": row["id"],
-        "user_id": row["user_id"],
-        "created_at": row["created_at"],
-        "expires_at": row["expires_at"]
-    }
+    # Fallback: if token exists in cookie, session is valid (Vercel ephemeral /tmp)
+    if token_fallback:
+        return {
+            "session_id": sid,
+            "user_id": "unknown",
+            "created_at": "",
+            "expires_at": ""
+        }
+
+    return None
+
+def _parse_session_cookie(raw: str):
+    """Parse compound cookie 'session_id:access_token' or plain 'session_id'."""
+    if raw and ":" in raw:
+        sid, token = raw.split(":", 1)
+        return sid, token
+    return raw, None
 
 def get_active_access_token(session_id: str = None):
     """Get the Zerodha access_token for a specific session cookie."""
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    if session_id:
-        cursor.execute("""
-            SELECT access_token
-            FROM zerodha_sessions
-            WHERE id = ? AND is_active = 1
-            LIMIT 1
-        """, (session_id,))
-    else:
-        conn.close()
+    if not session_id:
         return None
 
+    sid, token_fallback = _parse_session_cookie(session_id)
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT access_token
+        FROM zerodha_sessions
+        WHERE id = ? AND is_active = 1
+        LIMIT 1
+    """, (sid,))
     row = cursor.fetchone()
     conn.close()
 
-    if not row:
-        return None
+    if row:
+        return row["access_token"]
 
-    return row["access_token"]
+    # Fallback: use token embedded in cookie (Vercel ephemeral /tmp)
+    return token_fallback
 
 def get_any_active_access_token() -> str | None:
     """Return the most recent active, non-expired token (for scheduler use)."""
@@ -139,13 +153,14 @@ def get_any_active_access_token() -> str | None:
 
 def deactivate_session(session_id: str):
     """Deactivate a single session by its ID."""
+    sid, _ = _parse_session_cookie(session_id)
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE zerodha_sessions
         SET is_active = 0
         WHERE id = ?
-    """, (session_id,))
+    """, (sid,))
     conn.commit()
     conn.close()
 
