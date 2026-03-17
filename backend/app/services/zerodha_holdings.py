@@ -1,8 +1,11 @@
 import os
 import time
+import logging
 import requests
 from fastapi import HTTPException
 from backend.app.services.db import get_active_access_token, save_holdings_snapshot
+
+logger = logging.getLogger(__name__)
 
 # Per-session cache: keyed by session_id so different users don't share data
 _holdings_cache = {}
@@ -40,9 +43,10 @@ def fetch_zerodha_holdings(session_id: str = None):
     )
 
     if response.status_code != 200:
+        logger.error("Kite holdings API error: HTTP %s — %s", response.status_code, response.text[:500])
         raise HTTPException(
             status_code=response.status_code,
-            detail="Failed to fetch Zerodha holdings"
+            detail=f"Kite API {response.status_code}: {response.text[:200]}"
         )
 
     holdings = response.json()["data"]

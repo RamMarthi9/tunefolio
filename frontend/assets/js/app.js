@@ -36,12 +36,15 @@ async function fetchHistoricalHoldings(fy = "") {
 async function fetchHoldings() {
   const res = await fetch(`${API_BASE}/portfolio/holdings`, FETCH_OPTS);
   if (!res.ok) {
+    let detail = "";
+    try { const body = await res.json(); detail = body.detail || ""; } catch (_) {}
+    console.error(`Holdings API error: HTTP ${res.status} — ${detail}`);
     if ((res.status === 401 || res.status === 403) && !justAuthenticated) {
       // Session expired or invalid — redirect to re-login
       window.location.href = `${API_BASE}/auth/zerodha/login`;
       throw new Error("Session expired — redirecting to login");
     }
-    throw new Error(`Failed to load holdings (HTTP ${res.status})`);
+    throw new Error(`Failed to load holdings (HTTP ${res.status}: ${detail})`);
   }
   return res.json();
 }

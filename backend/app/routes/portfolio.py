@@ -191,8 +191,10 @@ def portfolio_overview(request: Request):
     session_id = request.cookies.get("tf_session")
     try:
         holdings = fetch_zerodha_holdings(session_id)
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
     total_stocks = len(holdings)
     total_quantity = sum(h["quantity"] for h in holdings)
@@ -233,8 +235,10 @@ def portfolio_holdings(request: Request):
     session_id = request.cookies.get("tf_session")
     try:
         holdings = fetch_zerodha_holdings(session_id)
+    except HTTPException:
+        raise  # preserve original status code & detail from Kite API
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
     # Ensure instruments exist & enriched
     upsert_instruments_from_holdings(holdings)
