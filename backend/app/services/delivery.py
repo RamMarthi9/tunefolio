@@ -1,8 +1,13 @@
 import os
 import math
+import logging
 from datetime import datetime, timedelta
 
+import requests as _requests
+
 from backend.app.services.db import save_delivery_cache, get_delivery_cache
+
+logger = logging.getLogger(__name__)
 
 # nselib/pandas only needed for live NSE fetching (not on Vercel — NSE blocks cloud IPs)
 try:
@@ -121,6 +126,68 @@ def fetch_delivery_from_nse(symbol: str, period_days: int = 365) -> list[dict]:
     return unique_results
 
 
+def _fetch_yahoo_finance(symbol: str, period_days: int = 365) -> list[dict]:
+    """Fetch OHLCV data from Yahoo Finance as fallback (works on Vercel)."""
+    period_map = {90: "3mo", 180: "6mo", 365: "1y", 730: "2y", 1095: "3y"}
+    yf_period = "1y"
+    for days, period_str in sorted(period_map.items()):
+        if period_days <= days:
+            yf_period = period_str
+            break
+    else:
+        yf_period = "5y"
+
+    url = (
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}.NS"
+        f"?range={yf_period}&interval=1d"
+    )
+    try:
+        r = _requests.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+            verify=not os.getenv("VERCEL"),
+        )
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        result = data.get("chart", {}).get("result", [{}])[0]
+        timestamps = result.get("timestamp", [])
+        quotes = result.get("indicators", {}).get("quote", [{}])[0]
+        if not timestamps:
+            return []
+
+        rows = []
+        prev_close = None
+        for i, ts in enumerate(timestamps):
+            trade_date = datetime.utcfromtimestamp(ts).strftime("%d-%b-%Y")
+            c = quotes.get("close", [None] * len(timestamps))[i]
+            if c is None:
+                continue
+            o = quotes.get("open", [None] * len(timestamps))[i] or c
+            h = quotes.get("high", [None] * len(timestamps))[i] or c
+            lo = quotes.get("low", [None] * len(timestamps))[i] or c
+            v = quotes.get("volume", [None] * len(timestamps))[i] or 0
+            price_up = c >= prev_close if prev_close else True
+            prev_close = c
+            rows.append({
+                "date": trade_date,
+                "open_price": round(o, 2),
+                "high_price": round(h, 2),
+                "low_price": round(lo, 2),
+                "close_price": round(c, 2),
+                "total_traded_qty": v,
+                "delivered_qty": 0,
+                "not_delivered_qty": 0,
+                "delivery_pct": 0,
+                "price_up": price_up,
+            })
+        return rows
+    except Exception as e:
+        logger.warning("Yahoo Finance fetch failed for %s: %s", symbol, e)
+        return []
+
+
 def fetch_and_cache_delivery(symbol: str, period_days: int = 365) -> list[dict]:
     """
     Fetch from NSE, cache to DB, return results.
@@ -135,20 +202,29 @@ def fetch_and_cache_delivery(symbol: str, period_days: int = 365) -> list[dict]:
 def fetch_delivery_data(symbol: str, period_days: int = 365) -> list[dict]:
     """
     Primary function called by the API endpoint.
-    1. Try DB cache first (always fast)
-    2. If cache seems incomplete for the requested period, try live NSE fetch
-    3. Return whatever we have (cache may have partial data for long periods)
+    1. Try DB cache first
+    2. If cache is stale (latest date > 3 days old), backfill from Yahoo Finance
+    3. If cache empty, try NSE then Yahoo Finance
     """
-    # 1. Check cache — always return what we have
     cached = get_delivery_cache(symbol, period_days)
 
-    # 2. If cache empty or has fewer data points than expected for this period,
-    #    try live NSE fetch to supplement (works locally, may fail on Render)
-    expected_min_days = period_days * 0.5  # ~50% of trading days in the range
-    if not cached or (period_days > 365 and len(cached) < expected_min_days * 0.3):
+    stale = False
+    if cached:
+        try:
+            latest_str = cached[-1].get("date", "")
+            latest_dt = datetime.strptime(latest_str, "%d-%b-%Y")
+            stale = (datetime.now() - latest_dt).days > 3
+        except (ValueError, IndexError):
+            stale = True
+
+    if not cached or stale:
         live_data = fetch_and_cache_delivery(symbol, period_days)
         if live_data:
-            # Re-read from cache (now merged with new data)
             cached = get_delivery_cache(symbol, period_days)
+        elif not cached or stale:
+            yf_data = _fetch_yahoo_finance(symbol, period_days)
+            if yf_data:
+                save_delivery_cache(symbol, yf_data)
+                cached = get_delivery_cache(symbol, period_days)
 
     return cached or []
