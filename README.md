@@ -19,6 +19,14 @@ TuneFolio is portfolio intelligence — clean, structured, and personal. Because
 [The Core Idea Link](https://www.youtube.com/watch?v=Ec75hA47hck)
 ![TuneFolio](https://github.com/RamMarthi9/tunefolio/blob/23abb313606952db7aadafaa97098b1e5c1234d6/TuneFolioLogo.png)
 
+## Dashboard — Current Holdings
+
+![TuneFolio Dashboard — Current Holdings with Delivery Volume Charts](Dashboard_Holdings.png)
+
+*Current Holdings view showing stock-level price charts with delivery volume stacked bars (Delivered vs Settled), sector tagging, and real-time P&L.*
+
+---
+
 ## Vision
 
 TuneFolio aims to become a **personal investment memory system** —
