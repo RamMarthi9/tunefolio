@@ -3,3 +3,6 @@ python-dotenv==1.0.1
 requests==2.31.0
 pytz>=2024.1
 yfinance>=0.2.36
+nselib>=1.0.0
+nsepython>=0.6
+nse>=1.0.0
