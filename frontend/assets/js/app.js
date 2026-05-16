@@ -1970,23 +1970,29 @@ function renderDeliveryChart(canvasId, data, symbol) {
         },
         datalabels: { display: false },
         tooltip: {
+          mode: "index",
+          intersect: false,
           callbacks: {
             title: (tooltipItems) => {
               const idx = tooltipItems[0].dataIndex;
               const dir = data[idx].price_up ? "\u25B2 Up" : "\u25BC Down";
               return `${labels[idx]}  (${dir})`;
             },
-            label: (ctx) => {
-              const idx = ctx.dataIndex;
-              const total = (deliveredQty[idx] || 0) + (notDeliveredQty[idx] || 0);
-              const pct = total > 0 ? ((ctx.parsed.y / total) * 100).toFixed(1) : 0;
-              return `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString("en-IN")} (${pct}%)`;
-            },
-            afterBody: (tooltipItems) => {
+            beforeBody: (tooltipItems) => {
               const idx = tooltipItems[0].dataIndex;
-              const total = (deliveredQty[idx] || 0) + (notDeliveredQty[idx] || 0);
-              return `Total traded: ${total.toLocaleString("en-IN")}`;
-            }
+              const del = deliveredQty[idx] || 0;
+              const notDel = notDeliveredQty[idx] || 0;
+              const total = del + notDel;
+              const delPct = total > 0 ? ((del / total) * 100).toFixed(1) : "0.0";
+              const settledPct = total > 0 ? ((notDel / total) * 100).toFixed(1) : "0.0";
+              return [
+                `Total traded: ${total.toLocaleString("en-IN")}`,
+                "",
+                `Delivered: ${del.toLocaleString("en-IN")} (${delPct}%)`,
+                `Settled: ${notDel.toLocaleString("en-IN")} (${settledPct}%)`
+              ];
+            },
+            label: () => null
           }
         }
       }
