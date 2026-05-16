@@ -170,6 +170,8 @@ def _fetch_yahoo_finance(symbol: str, period_days: int = 365) -> list[dict]:
             v = quotes.get("volume", [None] * len(timestamps))[i] or 0
             price_up = c >= prev_close if prev_close else True
             prev_close = c
+            # Yahoo doesn't provide delivery breakdown, so use total
+            # volume as "settled" (not_delivered) to keep bars visible.
             rows.append({
                 "date": trade_date,
                 "open_price": round(o, 2),
@@ -178,7 +180,7 @@ def _fetch_yahoo_finance(symbol: str, period_days: int = 365) -> list[dict]:
                 "close_price": round(c, 2),
                 "total_traded_qty": v,
                 "delivered_qty": 0,
-                "not_delivered_qty": 0,
+                "not_delivered_qty": v,
                 "delivery_pct": 0,
                 "price_up": price_up,
             })
@@ -224,7 +226,10 @@ def fetch_delivery_data(symbol: str, period_days: int = 365) -> list[dict]:
         elif not cached or stale:
             yf_data = _fetch_yahoo_finance(symbol, period_days)
             if yf_data:
-                save_delivery_cache(symbol, yf_data)
+                # overwrite=False → INSERT OR IGNORE: preserves existing
+                # NSE data (which has delivery volume breakdown) and only
+                # adds new dates from Yahoo Finance.
+                save_delivery_cache(symbol, yf_data, overwrite=False)
                 cached = get_delivery_cache(symbol, period_days)
 
     return cached or []

@@ -440,16 +440,24 @@ def _normalize_date_to_iso(date_str: str) -> str:
         return date_str  # Already ISO or unknown format
 
 
-def save_delivery_cache(symbol: str, records: list):
-    """Upsert delivery records for a symbol into cache. Dates stored as ISO."""
+def save_delivery_cache(symbol: str, records: list, overwrite: bool = True):
+    """Upsert delivery records for a symbol into cache. Dates stored as ISO.
+
+    Args:
+        overwrite: If True (default), uses INSERT OR REPLACE (NSE data with
+            full delivery breakdown should overwrite). If False, uses INSERT
+            OR IGNORE to preserve existing richer data (e.g. Yahoo Finance
+            fallback should not overwrite NSE delivery volumes).
+    """
     if not records:
         return
     conn = get_connection()
     cursor = conn.cursor()
+    verb = "INSERT OR REPLACE" if overwrite else "INSERT OR IGNORE"
     for r in records:
         iso_date = _normalize_date_to_iso(r["date"])
-        cursor.execute("""
-            INSERT OR REPLACE INTO delivery_cache
+        cursor.execute(f"""
+            {verb} INTO delivery_cache
                 (symbol, trade_date, total_traded_qty, delivered_qty,
                  not_delivered_qty, delivery_pct, price_up,
                  close_price, open_price, high_price, low_price)
