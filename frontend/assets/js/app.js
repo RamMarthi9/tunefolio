@@ -1893,8 +1893,26 @@ function renderDeliveryChart(canvasId, data, symbol) {
   }
 
   const labels = data.map(d => d.date);
-  const deliveredQty = data.map(d => d.delivered_qty);
-  const notDeliveredQty = data.map(d => d.not_delivered_qty);
+
+  // Estimate delivery split for Yahoo-only dates (delivery_pct == 0)
+  // using average delivery % from NSE dates that have real breakdown
+  const nseRows = data.filter(d => d.delivery_pct > 0);
+  const avgDelFraction = nseRows.length > 0
+    ? nseRows.reduce((sum, d) => sum + d.delivery_pct, 0) / nseRows.length / 100
+    : 0.5;
+
+  const deliveredQty = data.map(d => {
+    if (d.delivered_qty === 0 && d.total_traded_qty > 0 && d.delivery_pct === 0) {
+      return Math.round(d.total_traded_qty * avgDelFraction);
+    }
+    return d.delivered_qty;
+  });
+  const notDeliveredQty = data.map((d, i) => {
+    if (d.delivered_qty === 0 && d.total_traded_qty > 0 && d.delivery_pct === 0) {
+      return d.total_traded_qty - deliveredQty[i];
+    }
+    return d.not_delivered_qty;
+  });
 
   // Color per bar based on price direction:
   // Green day (price up): dark green delivered, light green settled
