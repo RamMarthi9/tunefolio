@@ -232,4 +232,21 @@ def fetch_delivery_data(symbol: str, period_days: int = 365) -> list[dict]:
                 save_delivery_cache(symbol, yf_data, overwrite=False)
                 cached = get_delivery_cache(symbol, period_days)
 
-    return cached or []
+    data = cached or []
+
+    # Estimate delivery split for Yahoo-only rows (delivery_pct == 0)
+    # using the stock's average delivery % from real NSE data.
+    # This fills in per-day delivered/settled values so the frontend
+    # can simply apply: settled = total_traded - delivered.
+    nse_rows = [r for r in data if r.get("delivery_pct", 0) > 0]
+    if nse_rows:
+        avg_pct = sum(r["delivery_pct"] for r in nse_rows) / len(nse_rows)
+        for r in data:
+            if r.get("delivery_pct", 0) == 0 and r.get("total_traded_qty", 0) > 0:
+                total = r["total_traded_qty"]
+                est_delivered = round(total * avg_pct / 100)
+                r["delivered_qty"] = est_delivered
+                r["not_delivered_qty"] = total - est_delivered
+                r["delivery_pct"] = round(avg_pct, 2)
+
+    return data
