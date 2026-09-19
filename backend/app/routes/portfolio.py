@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 
-from backend.app.services.zerodha_holdings import fetch_zerodha_holdings, fetch_zerodha_margins
+from backend.app.services.zerodha_holdings import fetch_zerodha_holdings, fetch_zerodha_margins, holdings_freshness
 from backend.app.services.db import (
     get_latest_snapshot_meta,
     upsert_instruments_from_holdings,
@@ -29,186 +29,26 @@ router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
 
 @router.get("/daily-pnl")
 def daily_pnl(request: Request):
-    """
-    Time-aware daily P&L:
+    """Broker quote movement, never mislabelled as a dated total portfolio return."""
+    holdings = fetch_zerodha_holdings(request.cookies.get("tf_session"))
+    movers = []
+    missing = []
+    for h in holdings:
+        close, last = h.get("close_price"), h.get("last_price")
+        if close is None or close <= 0 or last is None:
+            missing.append(h["tradingsymbol"])
+            continue
+        movers.append({"symbol": h["tradingsymbol"], "qty": h["quantity"],
+                       "prev_close": close, "last_price": last,
+                       "change": round((last-close)*h["quantity"], 2)})
+    total = round(sum(m["change"] for m in movers), 2) if not missing else None
+    return {"label": "Move vs broker previous close", "date": None,
+            "total_daily_pnl": total, "unrealised_daily": total,
+            "realised_daily": None, "stock_count": len(movers),
+            "status": "partial" if missing else "available", "missing_symbols": missing,
+            "explanation": "Current quantities × (last price − broker previous close). Excludes realised trades and cash flows. Quote date is not supplied by this endpoint.",
+            "top_movers": sorted(movers, key=lambda m: abs(m["change"]), reverse=True)[:5]}
 
-    After 5 PM IST   → "Today's P&L"     (Kite: last_price − close_price)
-    Before 9 AM IST  → "Yesterday's P&L"  (Kite: same data, market hasn't opened)
-    9 AM – 5 PM IST  → "Yesterday's P&L"  (delivery cache: last 2 close prices)
-
-    The Kite API `close_price` = previous trading day's close,
-    `last_price` = current/last traded price. Between market close
-    (3:30 PM) and next market open (9:15 AM), these don't change,
-    so both post-market and pre-market use the same Kite data.
-    """
-    import pytz
-    from datetime import datetime as _dt, timedelta
-
-    IST = pytz.timezone("Asia/Kolkata")
-    now_ist = _dt.now(IST)
-
-    # Use Kite API when market is closed (after 5 PM or before 9 AM)
-    # Use delivery cache during market hours (9 AM – 5 PM)
-    use_kite = now_ist.hour >= 17 or now_ist.hour < 9
-
-    from backend.app.services.trades import compute_realised_pnl
-
-    if use_kite:
-        # ── Kite API path (post-market or pre-market) ──
-        label = "Today's P&L" if now_ist.hour >= 17 else "Yesterday's P&L"
-
-        session_id = request.cookies.get("tf_session")
-        unrealised_daily = 0.0
-        stock_count = 0
-        per_stock = []
-        try:
-            holdings = fetch_zerodha_holdings(session_id)
-            for h in holdings:
-                prev_close = h.get("close_price", 0) or 0
-                last_price = h.get("last_price", 0) or 0
-                qty = h.get("quantity", 0) or 0
-                change = (last_price - prev_close) * qty
-                unrealised_daily += change
-                stock_count += 1
-                if abs(change) > 0.01:
-                    per_stock.append({
-                        "symbol": h["tradingsymbol"],
-                        "change": round(change, 2),
-                        "prev_close": prev_close,
-                        "last_price": last_price,
-                        "qty": qty,
-                    })
-        except Exception:
-            pass  # no active session → unrealised stays 0
-
-        # Realised trades: after 5 PM = today, before 9 AM = yesterday
-        if now_ist.hour >= 17:
-            trade_date = now_ist.strftime("%Y-%m-%d")
-        else:
-            # Find last trading day for realised lookup
-            trade_date = (now_ist - timedelta(days=1)).strftime("%Y-%m-%d")
-
-        realised_result = compute_realised_pnl(trade_date, trade_date)
-        realised_daily = realised_result["total_realised_pnl"]
-
-        return {
-            "label": label,
-            "date": trade_date,
-            "unrealised_daily": round(unrealised_daily, 2),
-            "realised_daily": round(realised_daily, 2),
-            "total_daily_pnl": round(unrealised_daily + realised_daily, 2),
-            "stock_count": stock_count,
-            "top_movers": sorted(per_stock, key=lambda x: abs(x["change"]), reverse=True)[:5],
-        }
-
-    else:
-        # ── Delivery cache path (market hours 9 AM – 5 PM) ──
-        label = "Yesterday's P&L"
-
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        # Get current holding quantities (Kite API or fallback to snapshot)
-        holdings_qty = {}
-        session_id = request.cookies.get("tf_session")
-        try:
-            holdings = fetch_zerodha_holdings(session_id)
-            for h in holdings:
-                holdings_qty[h["tradingsymbol"]] = h["quantity"]
-        except Exception:
-            conn2 = get_connection()
-            c2 = conn2.cursor()
-            c2.execute("""
-                SELECT tradingsymbol, quantity FROM holdings_snapshots
-                WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM holdings_snapshots)
-            """)
-            for r in c2.fetchall():
-                holdings_qty[r["tradingsymbol"]] = r["quantity"]
-            conn2.close()
-
-        if not holdings_qty:
-            conn.close()
-            return {
-                "label": label, "date": None,
-                "unrealised_daily": 0, "realised_daily": 0,
-                "total_daily_pnl": 0, "stock_count": 0, "top_movers": [],
-            }
-
-        # For each holding, get its last 2 close prices from delivery_cache
-        unrealised_daily = 0.0
-        per_stock = []
-        ref_date = None
-
-        for sym, qty in holdings_qty.items():
-            cursor.execute("""
-                SELECT trade_date, close_price FROM delivery_cache
-                WHERE symbol = ? ORDER BY trade_date DESC LIMIT 2
-            """, (sym,))
-            rows = cursor.fetchall()
-            if len(rows) < 2:
-                continue
-            lp = rows[0]["close_price"]
-            pp = rows[1]["close_price"]
-            day = rows[0]["trade_date"]
-            if not ref_date or day > ref_date:
-                ref_date = day
-            if pp and pp > 0:
-                change = (lp - pp) * qty
-                unrealised_daily += change
-                if abs(change) > 0.01:
-                    per_stock.append({
-                        "symbol": sym,
-                        "change": round(change, 2),
-                        "prev_close": pp,
-                        "last_price": lp,
-                        "qty": qty,
-                    })
-
-        conn.close()
-
-        # Realised trades on the reference date
-        realised_daily = 0.0
-        if ref_date:
-            realised_result = compute_realised_pnl(ref_date, ref_date)
-            realised_daily = realised_result["total_realised_pnl"]
-
-        return {
-            "label": label,
-            "date": ref_date,
-            "unrealised_daily": round(unrealised_daily, 2),
-            "realised_daily": round(realised_daily, 2),
-            "total_daily_pnl": round(unrealised_daily + realised_daily, 2),
-            "stock_count": len(holdings_qty),
-            "top_movers": sorted(per_stock, key=lambda x: abs(x["change"]), reverse=True)[:5],
-        }
-
-
-@router.get("/overview")
-def portfolio_overview(request: Request):
-    """
-    Portfolio summary (Phase 1)
-    """
-    session_id = request.cookies.get("tf_session")
-    try:
-        holdings = fetch_zerodha_holdings(session_id)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    total_stocks = len(holdings)
-    total_quantity = sum(h["quantity"] for h in holdings)
-    total_invested = sum(h["average_price"] * h["quantity"] for h in holdings)
-    current_value = sum(h["last_price"] * h["quantity"] for h in holdings)
-    total_pnl = current_value - total_invested
-
-    return {
-        "total_stocks": total_stocks,
-        "total_quantity": total_quantity,
-        "total_invested_value": round(total_invested, 2),
-        "current_value": round(current_value, 2),
-        "total_pnl": round(total_pnl, 2),
-    }
 
 @router.get("/margins")
 def portfolio_margins(request: Request):
@@ -216,17 +56,19 @@ def portfolio_margins(request: Request):
     session_id = request.cookies.get("tf_session")
     try:
         margins = fetch_zerodha_margins(session_id)
-    except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="Broker balances are unavailable")
 
     available = margins.get("available", {})
     return {
-        "net": round(margins.get("net", 0), 2),
-        "cash": round(available.get("cash", 0), 2),
-        "collateral": round(available.get("collateral", 0), 2),
-        "opening_balance": round(available.get("opening_balance", 0), 2),
-        "live_balance": round(available.get("live_balance", 0), 2),
-        "intraday_payin": round(available.get("intraday_payin", 0), 2),
+        "net": round(margins["net"], 2) if margins.get("net") is not None else None,
+        "cash": round(available["cash"], 2) if available.get("cash") is not None else None,
+        "collateral": round(available["collateral"], 2) if available.get("collateral") is not None else None,
+        "opening_balance": round(available["opening_balance"], 2) if available.get("opening_balance") is not None else None,
+        "live_balance": round(available["live_balance"], 2) if available.get("live_balance") is not None else None,
+        "intraday_payin": round(available["intraday_payin"], 2) if available.get("intraday_payin") is not None else None,
     }
 
 
@@ -238,7 +80,7 @@ def portfolio_holdings(request: Request):
     except HTTPException:
         raise  # preserve original status code & detail from Kite API
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=502, detail="Broker holdings are unavailable")
 
     # Ensure instruments exist & enriched
     upsert_instruments_from_holdings(holdings)
@@ -289,6 +131,7 @@ def portfolio_holdings(request: Request):
         "count": len(data),
         "data": data,
         "meta": {
+            **holdings_freshness(session_id),
             "total_invested": round(total_invested, 2),
             "total_current": round(total_current, 2),
             "total_pnl": round(total_current - total_invested, 2)
@@ -310,8 +153,10 @@ def historical_holdings(request: Request, fy: str = None):
     try:
         holdings = fetch_zerodha_holdings(session_id)
         current_symbols = [h["tradingsymbol"] for h in holdings]
+    except HTTPException:
+        raise
     except Exception:
-        pass  # If session expired, still show historical data
+        raise HTTPException(status_code=502, detail="Cannot verify current positions; exited holdings unavailable")
 
     # Parse FY filter
     fy_start, fy_end = None, None
@@ -367,7 +212,7 @@ def historical_holdings(request: Request, fy: str = None):
                     log.info(f"Enriched sector for {sym}")
                 except Exception:
                     pass
-        threading.Thread(target=_bg_enrich, args=(missing_sectors,), daemon=True).start()
+        pass  # Enrich in an explicitly scoped maintenance job; never use an unbound thread.
 
     total_pnl = sum(d["total_pnl"] for d in data)
 
@@ -439,57 +284,10 @@ def sector_allocation(request: Request):
             "by_invested_value": by_invested_value
         }
 
+    except HTTPException:
+        raise
     except Exception:
-        pass  # Fall through to snapshot-based approach
-
-    # --- Fallback: snapshot-based (if live fails) ---
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    query = """
-    SELECT
-        i.sector AS sector,
-        SUM(h.quantity * h.last_price) AS current_value,
-        SUM(h.quantity * h.average_price) AS invested_value,
-        SUM(h.pnl) AS pnl
-    FROM holdings_snapshots h
-    JOIN instruments i
-      ON h.tradingsymbol = i.symbol
-     AND h.exchange = i.exchange
-    WHERE h.snapshot_at = (
-        SELECT MAX(snapshot_at) FROM holdings_snapshots
-    )
-    GROUP BY i.sector
-    """
-
-    cursor.execute(query)
-    rows = cursor.fetchall()
-    conn.close()
-
-    total_current = sum(row["current_value"] for row in rows) or 1
-    total_invested = sum(row["invested_value"] for row in rows) or 1
-
-    by_current_value = []
-    by_invested_value = []
-
-    for r in rows:
-        by_current_value.append({
-            "sector": r["sector"] or "Unknown",
-            "value": round(r["current_value"], 2),
-            "percentage": round((r["current_value"] / total_current) * 100, 2),
-            "profit": round(r["pnl"], 2)
-        })
-
-        by_invested_value.append({
-            "sector": r["sector"] or "Unknown",
-            "value": round(r["invested_value"], 2),
-            "percentage": round((r["invested_value"] / total_invested) * 100, 2)
-        })
-
-    return {
-        "by_current_value": by_current_value,
-        "by_invested_value": by_invested_value
-    }
+        raise HTTPException(status_code=502, detail="Live allocation unavailable")
 
 @router.get("/delivery-data")
 def delivery_data(symbol: str, period: str = "1y"):
@@ -509,7 +307,7 @@ def delivery_data(symbol: str, period: str = "1y"):
     try:
         data = fetch_delivery_data(symbol, period_days)
     except Exception:
-        data = []
+        raise HTTPException(status_code=502, detail="Market history provider unavailable")
 
     return {
         "symbol": symbol,
@@ -646,10 +444,7 @@ def get_trades_by_symbol(symbol: str):
 @router.post("/trades/import")
 def import_trades():
     """Import all tradebook CSVs into trades table. Idempotent."""
-    from backend.app.services.trades import import_tradebooks
-    summary = import_tradebooks()
-    total = sum(summary.values())
-    return {"status": "ok", "total_imported": total, "by_file": summary}
+    raise HTTPException(status_code=409, detail="Shared tradebook imports are disabled. Use an explicitly account-bound import.")
 
 
 @router.get("/realised-pnl")
@@ -729,5 +524,17 @@ def trade_sync_trigger(request: Request):
     """Manually trigger a trade sync using the current session's token."""
     session_id = request.cookies.get("tf_session")
     token = get_active_access_token(session_id) if session_id else None
-    result = sync_trades_from_kite(access_token=token)
+    result = sync_trades_from_kite(access_token=token, user_id=request.state.account_id)
     return result
+
+
+@router.get("/changes")
+def portfolio_changes():
+    from backend.app.services.performance import changes
+    return changes()
+
+
+@router.get("/performance")
+def historical_performance():
+    from backend.app.services.performance import performance
+    return performance()

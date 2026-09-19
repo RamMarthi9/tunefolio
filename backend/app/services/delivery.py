@@ -60,15 +60,15 @@ def _safe_int(val) -> int:
 def _build_row(date_str, total_traded, delivered, close_price, prev_close,
                open_price, high_price, low_price, delivery_pct=None) -> dict:
     """Create a standardised delivery-data row dict."""
-    not_delivered = max(total_traded - delivered, 0)
-    if delivery_pct is None:
+    not_delivered = max(total_traded - delivered, 0) if delivered is not None else None
+    if delivery_pct is None and delivered is not None:
         delivery_pct = round((delivered / total_traded * 100) if total_traded else 0, 2)
     return {
         "date": date_str,
         "total_traded_qty": total_traded,
         "delivered_qty": delivered,
         "not_delivered_qty": not_delivered,
-        "delivery_pct": round(delivery_pct, 2),
+        "delivery_pct": round(delivery_pct, 2) if delivery_pct is not None else None,
         "price_up": close_price >= prev_close if prev_close else True,
         "close_price": close_price,
         "open_price": open_price,
@@ -367,13 +367,13 @@ def _fetch_yahoo_finance(symbol: str, period_days: int = 365) -> list[dict]:
             rows.append(_build_row(
                 date_str=trade_date,
                 total_traded=v,
-                delivered=0,        # Yahoo has no delivery data
+                delivered=None,     # Missing is not zero delivery.
                 close_price=round(c, 2),
                 prev_close=prev_close or c,
                 open_price=round(o, 2),
                 high_price=round(h, 2),
                 low_price=round(lo, 2),
-                delivery_pct=0,     # Yahoo has no delivery data
+                delivery_pct=None,
             ))
             prev_close = c
         return rows

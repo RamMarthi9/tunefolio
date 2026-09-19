@@ -1,29 +1,62 @@
 import os
 import sqlite3
-import shutil
 from pathlib import Path
 
+from contextvars import ContextVar
+from contextlib import contextmanager
+import hashlib
+
 _BASE = Path(__file__).resolve().parents[2]
-SEED_DB_PATH = _BASE / "data" / "tunefolio.seed.db"
+# Never hydrate an account from a bundled database containing unowned records.
+DATA_ROOT = Path(os.getenv("TUNEFOLIO_DATA_DIR", str(_BASE / "data" / "private")))
+DB_PATH = DATA_ROOT / "sessions.db"
+_account = ContextVar("tunefolio_account", default=None)
 
-# On Vercel (read-only filesystem), use /tmp for writable DB
-if os.getenv("VERCEL"):
-    DB_PATH = Path("/tmp/tunefolio.db")
-else:
-    DB_PATH = _BASE / "data" / "tunefolio.db"
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+def storage_ready():
+    # Serverless local files cannot provide durable or shared sessions.
+    return not os.getenv("VERCEL") and (
+        os.getenv("ENVIRONMENT") != "production" or bool(os.getenv("TUNEFOLIO_DATA_DIR"))
+    )
 
-# Restore from seed if DB doesn't exist (cold start on Vercel/Render)
-if not DB_PATH.exists() and SEED_DB_PATH.exists():
-    shutil.copy2(SEED_DB_PATH, DB_PATH)
-
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+def _connect(path):
+    if not storage_ready():
+        raise RuntimeError("Durable storage is not configured")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, timeout=15)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=15000")
     return conn
 
+def system_connection():
+    return _connect(DATA_ROOT / "sessions.db")
+
+def get_connection():
+    user_id = _account.get()
+    if not user_id:
+        raise RuntimeError("Account context is required for portfolio storage")
+    name = hashlib.sha256(user_id.encode()).hexdigest()
+    return _connect(DATA_ROOT / "accounts" / (name + ".db"))
+
+@contextmanager
+def account_scope(user_id):
+    if not user_id or user_id == "unknown":
+        raise ValueError("Verified account identity required")
+    token = _account.set(user_id)
+    try:
+        yield
+    finally:
+        _account.reset(token)
+
+def init_account():
+    init_holdings_snapshot_table()
+    create_instruments_table()
+    create_delivery_cache_table()
+    create_trades_table()
+    create_index_cache_table()
+
 def init_db():
-    conn = get_connection()
+    conn = system_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -37,19 +70,42 @@ def init_db():
         )
     """)
 
+    cursor.execute("""CREATE TABLE IF NOT EXISTS login_states (
+        nonce TEXT PRIMARY KEY, expires_at TEXT NOT NULL
+    )""")
     conn.commit()
     conn.close()
 
 import uuid
 from datetime import datetime, timedelta
 
+def create_login_state():
+    import secrets
+    nonce = secrets.token_urlsafe(32)
+    conn = system_connection()
+    with conn:
+        conn.execute('DELETE FROM login_states WHERE expires_at <= ?', (datetime.utcnow().isoformat(),))
+        conn.execute('INSERT INTO login_states VALUES (?, ?)',
+                     (nonce, (datetime.utcnow()+timedelta(minutes=10)).isoformat()))
+    conn.close()
+    return nonce
+
+def consume_login_state(nonce):
+    conn = system_connection()
+    with conn:
+        cursor = conn.execute('DELETE FROM login_states WHERE nonce = ? AND expires_at > ?',
+                              (nonce, datetime.utcnow().isoformat()))
+        valid = cursor.rowcount == 1
+    conn.close()
+    return valid
+
 def save_zerodha_session(user_id: str, access_token: str):
-    conn = get_connection()
+    conn = system_connection()
     cursor = conn.cursor()
 
     session_id = str(uuid.uuid4())
     created_at = datetime.utcnow()
-    expires_at = created_at + timedelta(hours=12)  # Zerodha token validity (approx)
+    expires_at = created_at + timedelta(hours=12)  # Application maximum; broker can expire sooner.
 
     cursor.execute("""
         INSERT INTO zerodha_sessions (
@@ -70,91 +126,41 @@ def save_zerodha_session(user_id: str, access_token: str):
 
     return session_id
 
-def get_active_zerodha_session(session_id: str = None):
-    """Look up an active session by its cookie session_id."""
-    if not session_id:
+def _session_row(session_id):
+    # Reject old token-bearing cookies: force one clean sign-in after upgrade.
+    if not session_id or ":" in session_id:
         return None
-
-    sid, token_fallback = _parse_session_cookie(session_id)
-
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, user_id, created_at, expires_at
-        FROM zerodha_sessions
-        WHERE id = ? AND is_active = 1
-        LIMIT 1
-    """, (sid,))
-    row = cursor.fetchone()
+    conn = system_connection()
+    row = conn.execute("SELECT * FROM zerodha_sessions WHERE id = ? AND is_active = 1",
+                       (session_id,)).fetchone()
     conn.close()
-
-    if row:
-        return {
-            "session_id": row["id"],
-            "user_id": row["user_id"],
-            "created_at": row["created_at"],
-            "expires_at": row["expires_at"]
-        }
-
-    # Fallback: if token exists in cookie, session is valid (Vercel ephemeral /tmp)
-    if token_fallback:
-        return {
-            "session_id": sid,
-            "user_id": "unknown",
-            "created_at": "",
-            "expires_at": ""
-        }
-
+    if row and datetime.fromisoformat(row["expires_at"]) > datetime.utcnow():
+        return row
     return None
 
-def _parse_session_cookie(raw: str):
-    """Parse compound cookie 'session_id:access_token' or plain 'session_id'."""
-    if raw and ":" in raw:
-        sid, token = raw.split(":", 1)
-        return sid, token
-    return raw, None
-
-def get_active_access_token(session_id: str = None):
-    """Get the Zerodha access_token for a specific session cookie."""
-    if not session_id:
+def get_active_zerodha_session(session_id=None):
+    row = _session_row(session_id)
+    if not row:
         return None
+    return {"session_id": row["id"], "user_id": row["user_id"],
+            "created_at": row["created_at"], "expires_at": row["expires_at"]}
 
-    sid, token_fallback = _parse_session_cookie(session_id)
-
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT access_token
-        FROM zerodha_sessions
-        WHERE id = ? AND is_active = 1
-        LIMIT 1
-    """, (sid,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if row:
-        return row["access_token"]
-
-    # Fallback: use token embedded in cookie (Vercel ephemeral /tmp)
-    return token_fallback
-
-def get_any_active_access_token() -> str | None:
-    """Return the most recent active, non-expired token (for scheduler use)."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT access_token FROM zerodha_sessions
-        WHERE is_active = 1 AND expires_at > datetime('now')
-        ORDER BY created_at DESC LIMIT 1
-    """)
-    row = cursor.fetchone()
-    conn.close()
+def get_active_access_token(session_id=None):
+    row = _session_row(session_id)
     return row["access_token"] if row else None
+
+def active_sessions():
+    conn = system_connection()
+    rows = conn.execute("SELECT * FROM zerodha_sessions WHERE is_active = 1 AND expires_at > ? ORDER BY created_at DESC",
+                        (datetime.utcnow().isoformat(),)).fetchall()
+    conn.close()
+    # Only the newest session per account is needed for background sync.
+    return list({r["user_id"]: dict(r) for r in reversed(rows)}.values())
 
 def deactivate_session(session_id: str):
     """Deactivate a single session by its ID."""
-    sid, _ = _parse_session_cookie(session_id)
-    conn = get_connection()
+    sid = session_id
+    conn = system_connection()
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE zerodha_sessions
@@ -166,7 +172,7 @@ def deactivate_session(session_id: str):
 
 def deactivate_all_sessions():
     """Set is_active = 0 for all active sessions (admin/cleanup)."""
-    conn = get_connection()
+    conn = system_connection()
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE zerodha_sessions

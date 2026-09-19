@@ -24,18 +24,29 @@
         </div>
 
         <div class="status">
-            <span id="connection-status">● Connected to Zerodha</span>
-            <span id="last-sync">Last sync: --</span>
+            <span id="connection-status">Checking connection…</span>
+            <span id="last-sync">Not retrieved yet</span>
             <button class="logout-btn" id="logoutBtn" title="Disconnect from Zerodha">Logout</button>
         </div>
     </header>
 
+    <div id="data-state" class="data-state" role="status" aria-live="polite">
+        <span id="data-state-message">Checking your session…</span>
+        <a href="/auth/zerodha/login">Connect Zerodha</a>
+        <button id="retry-data" type="button">Retry</button>
+    </div>
+    <nav class="primary-nav" aria-label="Portfolio navigation">
+        <button data-view="overview" aria-current="page">Overview</button>
+        <button data-view="holdings">Holdings</button>
+        <button data-view="performance">Performance</button>
+        <button data-view="history">History</button>
+    </nav>
     <!-- =========================
          KPI Summary
     ========================== -->
     <section class="kpi-strip">
         <div class="kpi">
-            <label id="kpi-daily-label">Daily P&amp;L</label>
+            <label id="kpi-daily-label">Move vs previous close</label>
             <div id="kpi-daily-pnl" class="value">—</div>
         </div>
         <div class="kpi">
@@ -59,7 +70,7 @@
             <div id="kpi-realised-prev" class="value">—</div>
         </div>
         <div class="kpi">
-            <label>Cash Available</label>
+            <label>Available cash</label>
             <div id="kpi-cash" class="value">—</div>
         </div>
     </section>
@@ -74,6 +85,18 @@
          Main Content
     ========================== -->
     <main class="content">
+        <section class="card evidence-card" data-view-panel="overview" aria-labelledby="changes-heading">
+            <h2 id="changes-heading">What changed?</h2>
+            <p id="changes-status">Waiting for verified portfolio observations.</p>
+            <ul id="changes-list"></ul>
+            <p class="muted">Changes in holding value are split into price movement and quantity changes. They are not investment returns or trading advice.</p>
+        </section>
+        <section class="card evidence-card" data-view-panel="performance" aria-labelledby="performance-heading">
+            <h2 id="performance-heading">Historical performance</h2>
+            <p id="performance-status">Loading history coverage…</p>
+            <div id="performance-result"></div>
+            <p class="muted">Time-weighted return requires verified portfolio valuations, including cash, immediately before every external deposit or withdrawal. Missing history is shown as unavailable.</p>
+        </section>
 
         <!-- Allocation (Pie Charts) -->
         <section class="card" data-section-id="allocation">
@@ -99,6 +122,9 @@
                             <button class="toggle-btn" data-dim="stock">Stock</button>
                         </div>
                     </div>
+                    <label class="allocation-mode">Allocation basis
+                      <select id="allocation-basis"><option value="current">Current value</option><option value="invested">Invested value</option></select>
+                    </label>
                     <div class="allocation-pair">
                         <div class="allocation-chart">
                             <h5>Current Value</h5>
@@ -185,6 +211,10 @@
             </div>
 
             <div class="collapsible" id="holdings-collapsible">
+                <div class="holdings-tools">
+                  <label>Find a holding <input id="holding-search" type="search" placeholder="Stock or sector" /></label>
+                  <label>Sort by <select id="holding-sort"><option value="symbol">Stock</option><option value="current_value">Current value</option><option value="pnl">Profit / loss</option></select></label>
+                </div>
                 <div class="table-wrapper">
                     <table id="holdings-table">
                         <thead>
@@ -288,11 +318,11 @@
             </div>
         </section>
 
-        <!-- Portfolio Comparative Analysis -->
+        <!-- Current-basket illustration -->
         <section class="card" data-section-id="comparative">
             <div class="card-header card-header--toggle collapsed">
                 <div class="card-header-left">
-                    <h2>Portfolio Comparative Analysis</h2>
+                    <h2>Current-basket illustration</h2>
                 </div>
                 <div class="card-header-actions">
                     <button class="reorder-btn reorder-up" title="Move up">▲</button>
@@ -305,7 +335,7 @@
                 </div>
             </div>
             <div class="collapsible collapsed" id="comparative-collapsible">
-                <div class="comparative-controls">
+                <p class="muted">Illustration using today’s quantities at past prices. This is not your historical portfolio return.</p><div class="comparative-controls">
                     <div class="toggle-group" id="comparativePeriodToggle">
                         <button class="toggle-btn" data-period="3m">3M</button>
                         <button class="toggle-btn" data-period="6m">6M</button>
@@ -326,6 +356,7 @@
     <!-- =========================
          App JS (must load last)
     ========================== -->
+    <script src="assets/js/navigation.js"></script>
     <script src="assets/js/app.js"></script>
 </body>
 </html>

@@ -22,8 +22,9 @@ def _run_trade_sync():
     """Wrapper that catches all exceptions so APScheduler never kills the job."""
     try:
         from backend.app.services.trade_sync import sync_trades_from_kite
-        result = sync_trades_from_kite()
-        logger.info(f"Scheduled trade sync result: {result}")
+        from backend.app.services.db import active_sessions
+        for session in active_sessions():
+            sync_trades_from_kite(session["access_token"], session["user_id"])
     except Exception as e:
         logger.error(f"Scheduled trade sync failed: {e}", exc_info=True)
 
@@ -35,6 +36,8 @@ def start_scheduler():
         logger.warning("Scheduler already running, skipping start")
         return
 
+    if BackgroundScheduler is None:
+        return
     _scheduler = BackgroundScheduler(timezone=IST)
 
     # 8:30 AM IST, Monday-Friday

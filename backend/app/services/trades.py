@@ -169,6 +169,7 @@ def compute_realised_pnl(fy_start: str = None, fy_end: str = None) -> dict:
     for row in rows:
         symbol_trades[row["symbol"]].append(dict(row))
 
+    missing_basis = []
     total_rpnl = 0.0
     total_sells = 0
     by_symbol = {}
@@ -214,6 +215,8 @@ def compute_realised_pnl(fy_start: str = None, fy_end: str = None) -> dict:
                     if oldest["qty_remaining"] <= 0.0001:
                         buy_queue.pop(0)
 
+                if sell_in_window and sell_qty_remaining > 0.0001:
+                    missing_basis.append({"symbol": symbol, "date": t["trade_date"], "quantity": sell_qty_remaining})
                 if sell_in_window:
                     symbol_rpnl += sell_rpnl
                     qty_sold += qty
@@ -227,7 +230,10 @@ def compute_realised_pnl(fy_start: str = None, fy_end: str = None) -> dict:
             total_rpnl += symbol_rpnl
 
     return {
-        "total_realised_pnl": round(total_rpnl, 2),
+        "total_realised_pnl": round(total_rpnl, 2) if rows and not missing_basis else None,
+        "status": "incomplete" if missing_basis else ("available" if rows else "unavailable"),
+        "missing_cost_basis": missing_basis,
+        "method": "FIFO gross of charges, based on imported trades; corporate actions must be reconciled",
         "by_symbol": by_symbol,
         "total_symbols_sold": len(by_symbol),
         "total_sells": total_sells,

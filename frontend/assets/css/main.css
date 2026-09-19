@@ -988,3 +988,63 @@ td:nth-child(9) {
     width: 100% !important;
     height: 100% !important;
 }
+
+/* Task-oriented navigation and honest service states */
+[hidden] { display: none !important; }
+.primary-nav { display:flex; gap:8px; padding:12px 24px; background:#fff; border-bottom:1px solid #dce2eb; position:sticky; top:0; z-index:30; }
+.primary-nav button, .data-state button, .data-state a { min-height:44px; padding:10px 16px; border:1px solid #cbd5e1; border-radius:10px; background:#fff; color:#25344b; font:inherit; cursor:pointer; }
+.primary-nav button[aria-current="page"] { background:#303e91; color:#fff; border-color:#303e91; }
+:focus-visible { outline:3px solid #1668d4; outline-offset:3px; }
+.data-state { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:16px 24px; background:#fff7dd; color:#45350b; }
+.data-state span { flex:1; min-width:180px; }
+.evidence-card { padding:24px; }
+.evidence-card h2 { margin:0 0 12px; }
+.evidence-card li { margin:12px 0; line-height:1.6; }
+.muted { color:#526176; line-height:1.6; font-size:14px; }
+.reorder-btn { display:none; }
+.kpi-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); }
+.table-wrapper { overflow-x:auto; }
+.status { flex-wrap:wrap; }
+#last-sync { max-width:330px; }
+@media(max-width:700px) {
+  body { padding-bottom:82px; }
+  .app-header { padding:16px; align-items:flex-start; flex-wrap:wrap; gap:12px; }
+  .status { width:100%; font-size:12px; gap:8px; }
+  .primary-nav { position:fixed; top:auto; bottom:0; left:0; right:0; padding:8px; padding-bottom:max(8px,env(safe-area-inset-bottom)); gap:4px; box-shadow:0 -2px 12px #15273c15; }
+  .primary-nav button { flex:1; padding:10px 4px; font-size:12px; min-width:0; }
+  .kpi-strip { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; padding:16px; }
+  .kpi .value { font-size:20px; overflow-wrap:anywhere; }
+  main.content { padding:12px; }
+  .card, .evidence-card { min-width:0; }
+  .evidence-card { padding:16px; }
+  .allocation-section, .analysis-section { display:block; }
+  .card-header { padding:14px; }
+  .table-wrapper { max-width:100%; }
+  #holdings-table { min-width:850px; }
+  .collapse-btn, .toggle-btn, .expand-btn { min-width:44px; min-height:44px; }
+}
+
+.allocation-mode { display:flex; align-items:center; gap:12px; margin:0 0 16px; color:#526176; }
+.allocation-mode select { min-height:44px; padding:8px; border:1px solid #cbd5e1; border-radius:8px; background:white; }
+@media(max-width:700px) { .sector-grid { grid-template-columns:1fr; } .sector-chart--bar { min-width:0; } }
+
+.holdings-tools { display:flex; gap:16px; flex-wrap:wrap; padding:12px 20px; }
+.holdings-tools label { display:flex; flex-direction:column; gap:6px; font-size:13px; color:#526176; }
+.holdings-tools input, .holdings-tools select { padding:10px; min-height:44px; border:1px solid #cbd5e1; border-radius:8px; font:inherit; background:#fff; }
+@media(max-width:768px) {
+  #holdings-table, #historical-table { min-width:0; width:100%; display:block; }
+  #holdings-table tbody, #historical-table tbody { display:block; width:100%; }
+  .holdings-row { display:block; margin:12px 0; border:1px solid #dce2eb; border-radius:12px; padding:10px; }
+  .holdings-row td { display:flex; align-items:center; justify-content:space-between; width:auto !important; min-height:32px; padding:6px 4px !important; gap:12px; text-align:right; border:0; }
+  .holdings-row td::before { position:static; font-size:12px; text-align:left; }
+  .holdings-row td.symbol { font-size:17px; font-weight:700; }
+  .delivery-detail-row { display:block; width:100%; }
+  .delivery-chart-cell { display:block; padding:4px !important; width:100%; }
+  .delivery-chart-cell::before { content:none; }
+  .delivery-chart-header { flex-wrap:wrap; gap:8px; }
+  .delivery-chart-header .toggle-group { flex-wrap:wrap; }
+  .brand { display:flex; flex-direction:column; align-items:flex-start; gap:4px; }
+  .holdings-tools { padding:10px; gap:10px; }
+  .holdings-tools label:first-child { flex:1; min-width:140px; }
+  .holdings-tools input { min-width:0; width:100%; }
+}

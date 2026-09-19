@@ -11,7 +11,7 @@ def fetch_active_session(request: Request):
 
     if not session:
         raise HTTPException(
-            status_code=404,
+            status_code=401,
             detail="No active Zerodha session found"
         )
 

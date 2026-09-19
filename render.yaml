@@ -2,9 +2,15 @@ services:
   - type: web
     name: tunefolio
     runtime: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r backend/requirements.txt
     startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    disk:
+      name: tunefolio-private-data
+      mountPath: /var/data/tunefolio
+      sizeGB: 1
     envVars:
+      - key: TUNEFOLIO_DATA_DIR
+        value: /var/data/tunefolio
       - key: KITE_API_KEY
         sync: false
       - key: KITE_API_SECRET

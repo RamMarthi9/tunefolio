@@ -45,6 +45,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.responses import JSONResponse
+from backend.app.services.db import storage_ready, account_scope, init_account, get_active_zerodha_session
+
+@app.middleware("http")
+async def account_boundary(request, call_next):
+    path = request.url.path
+    private = path.startswith("/portfolio/") or path == "/holdings"
+    session_path = path.startswith("/session/") or path.startswith("/auth/")
+    if (private or session_path) and not storage_ready():
+        return JSONResponse({"detail": "Durable storage is not configured. Portfolio access is unavailable."}, status_code=503)
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        origin = request.headers.get("origin")
+        if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
+            return JSONResponse({"detail": "Cross-origin write rejected"}, status_code=403)
+    if private:
+        session = get_active_zerodha_session(request.cookies.get("tf_session"))
+        if not session:
+            return JSONResponse({"detail": "Session expired. Please reconnect."}, status_code=401,
+                                headers={"Cache-Control": "no-store"})
+        request.state.account_id = session["user_id"]
+        with account_scope(session["user_id"]):
+            init_account()
+            response = await call_next(request)
+    else:
+        response = await call_next(request)
+    if private or session_path:
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 # API routes (MUST be registered BEFORE static files mount)
 app.include_router(zerodha_auth_router, prefix="/auth/zerodha")
 app.include_router(session_router)
@@ -53,15 +82,10 @@ app.include_router(portfolio_router)
 
 @app.on_event("startup")
 def startup_event():
-    init_db()
-    init_holdings_snapshot_table()
-    create_instruments_table()
-    create_delivery_cache_table()
-    create_trades_table()
-    create_index_cache_table()
-    # APScheduler requires persistent process — skip on Vercel (serverless)
-    if not os.getenv("VERCEL"):
-        start_scheduler()
+    if storage_ready():
+        init_db()
+        if not os.getenv("VERCEL") and os.getenv("TUNEFOLIO_DISABLE_SCHEDULER") != "1":
+            start_scheduler()
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -70,7 +94,9 @@ def shutdown_event():
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "TuneFolio backend running"}
+    if not storage_ready():
+        return JSONResponse({"status": "unavailable", "storage": "durable storage required"}, status_code=503)
+    return {"status": "ok", "storage": "configured"}
 
 # Serve frontend static files (MUST be LAST — acts as catch-all)
 # Skip on Vercel — static files are served by Vercel CDN from public/

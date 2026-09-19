@@ -3,7 +3,7 @@ import time
 import logging
 import requests
 from fastapi import HTTPException
-from backend.app.services.db import get_active_access_token, save_holdings_snapshot
+from backend.app.services.db import get_active_access_token, save_holdings_snapshot, deactivate_session
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +14,8 @@ CACHE_TTL = 30  # seconds
 
 
 def fetch_zerodha_holdings(session_id: str = None):
+    if not get_active_access_token(session_id):
+        raise HTTPException(status_code=401, detail="Session expired. Please reconnect.")
     now = time.time()
 
     # Return cached data if fresh (per session)
@@ -39,20 +41,29 @@ def fetch_zerodha_holdings(session_id: str = None):
 
     response = requests.get(
         "https://api.kite.trade/portfolio/holdings",
-        headers=headers
+        headers=headers, timeout=15
     )
 
+    if response.status_code in (401, 403):
+        deactivate_session(session_id)
+        _holdings_cache.pop(cache_key, None)
+        _margins_cache.pop(cache_key, None)
+        raise HTTPException(status_code=401, detail="Broker session expired. Please reconnect.")
     if response.status_code != 200:
-        logger.error("Kite holdings API error: HTTP %s — %s", response.status_code, response.text[:500])
+        logger.warning("Kite holdings API unavailable: HTTP %s", response.status_code)
         raise HTTPException(
-            status_code=response.status_code,
-            detail=f"Kite API {response.status_code}: {response.text[:200]}"
+            status_code=502,
+            detail="Broker holdings are temporarily unavailable"
         )
 
     holdings = response.json()["data"]
 
     # Persist snapshot
     save_holdings_snapshot(holdings)
+
+    from backend.app.services.performance import observe_holdings
+    from datetime import datetime, timezone
+    observe_holdings(holdings, datetime.fromtimestamp(now, timezone.utc).isoformat())
 
     # Update per-session cache
     _holdings_cache[cache_key] = {"data": holdings, "timestamp": now}
@@ -61,6 +72,8 @@ def fetch_zerodha_holdings(session_id: str = None):
 
 
 def fetch_zerodha_margins(session_id: str = None):
+    if not get_active_access_token(session_id):
+        raise HTTPException(status_code=401, detail="Session expired. Please reconnect.")
     now = time.time()
 
     cache_key = session_id or "__global__"
@@ -85,12 +98,17 @@ def fetch_zerodha_margins(session_id: str = None):
 
     response = requests.get(
         "https://api.kite.trade/user/margins/equity",
-        headers=headers
+        headers=headers, timeout=15
     )
 
+    if response.status_code in (401, 403):
+        deactivate_session(session_id)
+        _holdings_cache.pop(cache_key, None)
+        _margins_cache.pop(cache_key, None)
+        raise HTTPException(status_code=401, detail="Broker session expired. Please reconnect.")
     if response.status_code != 200:
         raise HTTPException(
-            status_code=response.status_code,
+            status_code=502,
             detail="Failed to fetch Zerodha margins"
         )
 
@@ -99,3 +117,10 @@ def fetch_zerodha_margins(session_id: str = None):
     _margins_cache[cache_key] = {"data": margins, "timestamp": now}
 
     return margins
+
+
+def holdings_freshness(session_id):
+    from datetime import datetime, timezone
+    entry = _holdings_cache.get(session_id)
+    return {"source": "broker", "retrieved_at": datetime.fromtimestamp(entry["timestamp"], timezone.utc).isoformat() if entry else None,
+            "quote_at": None, "cache_ttl_seconds": CACHE_TTL}
