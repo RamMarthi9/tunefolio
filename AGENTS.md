@@ -1,10 +1,11 @@
 # TuneFolio project instructions
 
-## Scope and status (2026-09-19)
+## Scope and status (2026-09-20)
 Repository: https://github.com/RamMarthi9/tunefolio.
 Local root: C:/Users/ramma/Documents/Ram/tunefolio.
 Baseline HEAD: 2fcf8ab. The security, persistence, navigation and performance changes
-described below are local working-tree changes, not a verified production rollout.
+described below are in draft PR #1 on codex/portfolio-security-and-dashboard.
+Remote storage follow-up is being validated before production rollout.
 Read git status before changes. Preserve unrelated untracked `nul`.
 The user approved this order: isolation/sessions/persistence/truthful states,
 then overview/holdings/mobile navigation, then accurate history and explainable changes.
@@ -39,9 +40,16 @@ Do not label current-quantity backcasts as actual historical investment returns.
 - Legacy seed/runtime DB is never copied into accounts. Shared CSV import endpoint
   is disabled. Unowned historical data requires verified ownership before migration.
 - SQLite production requires a persistent mounted TUNEFOLIO_DATA_DIR, one backend instance.
-  Vercel ephemeral backend fails closed with 503; managed-database support is not implemented.
+  Vercel requires TURSO_DATABASE_URL and TURSO_AUTH_TOKEN. remote_db.py uses direct
+  libSQL connections (no local replica). Logical table names are mapped to server-selected
+  SHA-256 account namespaces in one managed DB; this is application isolation, not DB RLS.
+  System tables have a separate namespace. Never accept SQL or namespaces from clients.
+  Partial configuration fails closed. Missing durable storage returns 503.
+  Health probes the database; lazy system-schema initialization supports serverless ASGI.
+  Production and Preview use separate Turso databases, injected by Vercel integration.
+  No background scheduler/daemon on Vercel: History provides explicit today's-trades sync.
 - Render blueprint defines a persistent disk and correct backend requirements path.
-  Provisioning/deployment remains pending; do not push to the live Vercel backend as-is.
+  Render is an alternative; the approved deployment target is GitHub plus Vercel/Turso.
 - Sensitive API responses are no-store. Cross-origin writes are rejected.
 
 ## Financial conventions and limits
@@ -99,6 +107,13 @@ ledger schema, ownership migration and outstanding constraints.
 Login includes a one-use, 10-minute server-side state tied to an HttpOnly cookie.
 Kite redirect_params returns that state; unmatched/replayed callbacks are rejected.
 Start login on the configured callback origin. Secure cookies are mandatory in production.
-Latest local validation: 26 tests pass; JS syntax and diff whitespace checks pass.
+Latest local validation: 51 tests pass (including libSQL adapter with local transport); JS syntax and diff whitespace checks pass.
 Chrome mobile DOM/accessibility checks passed after fixing the old stacked-table labels;
 final screenshot capture timed out. No production migration or deployment performed.
+
+## Managed storage rollout
+Turso Starter ($0/month) installed in Vercel, US East (Virginia). Production resource
+`tunefolio-db` connected only to Production. `tunefolio-preview-db` is for Preview only.
+Remote transport/build checks and production cutover must be verified before declaring live.
+Never put production DB credentials in Preview or Git. Broker sign-in is still required
+after cutover; no legacy portfolio or historical ledger is migrated automatically.

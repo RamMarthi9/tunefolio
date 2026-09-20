@@ -13,11 +13,20 @@ from backend.app.services.trade_sync import _insert_trades
 from backend.app.main import app
 
 
-@pytest.fixture(autouse=True)
-def isolated_storage(tmp_path, monkeypatch):
+@pytest.fixture(autouse=True, params=['sqlite', 'libsql'])
+def isolated_storage(tmp_path, monkeypatch, request):
     monkeypatch.setattr(db, 'DATA_ROOT', tmp_path)
     monkeypatch.delenv('VERCEL', raising=False)
     monkeypatch.setenv('ENVIRONMENT', 'test')
+    monkeypatch.delenv('TURSO_DATABASE_URL', raising=False)
+    monkeypatch.delenv('TURSO_AUTH_TOKEN', raising=False)
+    if request.param == 'libsql':
+        import libsql
+        from backend.app.services.remote_db import Connection
+        monkeypatch.setenv('TURSO_DATABASE_URL', 'libsql://synthetic.invalid')
+        monkeypatch.setenv('TURSO_AUTH_TOKEN', 'synthetic')
+        monkeypatch.setattr(db, 'remote_connect', lambda account_id=None:
+            Connection(libsql.connect(str(tmp_path / 'shared.db'), timeout=15), account_id))
     broker._holdings_cache.clear()
     broker._margins_cache.clear()
     db.init_db()
@@ -86,6 +95,8 @@ def test_revocation_and_expiry_override_cache():
 
 
 def test_serverless_storage_fails_closed(monkeypatch):
+    monkeypatch.delenv('TURSO_DATABASE_URL', raising=False)
+    monkeypatch.delenv('TURSO_AUTH_TOKEN', raising=False)
     monkeypatch.setenv('VERCEL', '1')
     with TestClient(app) as client:
         assert client.get('/portfolio/trades?symbol=AAA').status_code == 503

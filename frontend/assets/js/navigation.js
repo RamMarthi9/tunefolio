@@ -9,6 +9,26 @@ function setDataState(message, connection = 'Data unavailable') {
 }
 
 function initializeNavigation() {
+  const sync = document.createElement('button');
+  sync.type = 'button';
+  sync.textContent = "Sync today's trades";
+  const syncStatus = document.createElement('p');
+  syncStatus.setAttribute('role', 'status');
+  syncStatus.textContent = 'Trade sync covers today only; earlier history requires an owner-verified import.';
+  document.querySelector('[data-section-id="historical"]').prepend(sync, syncStatus);
+  sync.addEventListener('click', async () => {
+    sync.disabled = true;
+    syncStatus.textContent = "Syncing today's trades…";
+    try {
+      const response = await fetch('/portfolio/trade-sync/trigger', {method: 'POST', credentials: 'include'});
+      if (!response.ok) throw new Error('unavailable');
+      const result = await response.json();
+      if (result.status !== 'ok') throw new Error('unavailable');
+      syncStatus.textContent = `${result.inserted} new trades saved from ${result.fetched} trades today. Reload to update history. Earlier history is not included.`;
+    } catch (_) {
+      syncStatus.textContent = 'Trade sync unavailable. Reconnect or retry shortly. Existing history is preserved.';
+    } finally { sync.disabled = false; }
+  });
   document.getElementById('holding-search').addEventListener('input', () => {
     const rows = getFilteredAndSorted();
     renderHoldingsTable(rows);

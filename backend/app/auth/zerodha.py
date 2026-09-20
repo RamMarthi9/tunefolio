@@ -63,8 +63,10 @@ def zerodha_callback(request: Request, request_token: str = Query(None), state: 
 
     # Background work receives an explicit account; thread-local context is not inherited.
     from backend.app.services.trade_sync import sync_trades_from_kite
-    threading.Thread(target=sync_trades_from_kite,
-                     args=(access_token, user_id), daemon=True).start()
+    if not os.getenv('VERCEL'):
+        threading.Thread(target=sync_trades_from_kite,
+                         args=(access_token, user_id), daemon=True).start()
+    # On Vercel, sync in a separate account-bound request instead of a frozen thread.
 
     # Set session cookie and redirect to frontend
     redirect = RedirectResponse(

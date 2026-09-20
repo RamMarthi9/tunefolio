@@ -1,11 +1,11 @@
 # Storage, rollout and performance
 
-This change is local until a deployment is explicitly performed. Do not push it
-to the current Vercel backend without completing the storage cutover.
+Changes are being deployed through PR #1. Check Vercel deployment status before
+assuming production is current. Never deploy the serverless backend without managed storage.
 
 ## Durable deployment
 
-The supported backend is a persistent Python process with a mounted disk.
+For the local SQLite mode, the supported backend is a persistent Python process with a mounted disk.
 `TUNEFOLIO_DATA_DIR` must point to that disk in production. `render.yaml` now
 declares `/var/data/tunefolio`; provisioning the service/disk is a separate action.
 Use a single backend instance with this local SQLite design. Back up the mounted
@@ -13,8 +13,23 @@ directory with a SQLite-aware backup process, encrypt backups, and test restorat
 Setting the variable alone does not turn an ephemeral filesystem into durable storage.
 
 Vercel local storage is explicitly refused (503 for auth and portfolio routes).
-Keeping the backend on Vercel requires a managed database adapter, which is not
-implemented here. The existing production deployment has not been changed.
+Vercel uses the direct libSQL adapter with TURSO_DATABASE_URL and TURSO_AUTH_TOKEN.
+Vercel's Turso integration injects these secrets; never commit or print them. Production
+and Preview must connect to different databases. The current free Starter installation
+uses US East (Virginia). Health checks perform an actual database query.
+
+Remote account tables use a SHA-256 namespace selected only from the verified session;
+the session registry has its own system namespace. This is application-enforced isolation
+within one managed database, not provider row-level security. SQL is owned by the application,
+parameters hold values, and callers cannot supply physical table names or SQL.
+There is no serverless /tmp replica or fallback. Namespace schema creation is idempotent.
+The remote adapter's DB-API/transaction/isolation tests run using local libSQL; a deployed
+health/login check is separately required to verify remote transport.
+
+Vercel does not run the persistent scheduler or callback daemon. Users can explicitly
+sync today's broker trades from History. Past trades still need an owner-verified import.
+Configure provider backups and perform a restore drill before relying on recovered history;
+that drill has not yet been performed.
 
 Serve the frontend and API through the same public origin. Configure the broker
 callback on that origin at `/auth/zerodha/callback`. The callback now redirects
@@ -82,9 +97,9 @@ Observations are retrieval-time evidence, not independently scheduled market clo
 The broker quote timestamp is currently unavailable and the UI says so.
 
 ## Validation of the local implementation
-- 26 synthetic-data tests pass (account isolation, concurrent scopes, persistence across connections, session expiry/revocation, authenticated routes, broker rejection, login-state replay, missing FIFO basis, missing delivery data, change decomposition and cash-flow-adjusted returns).
+- 51 synthetic-data tests pass (account isolation, concurrent scopes, persistence across connections, session expiry/revocation, authenticated routes, broker rejection, login-state replay, missing FIFO basis, missing delivery data, change decomposition and cash-flow-adjusted returns).
 - Both JavaScript files pass Node syntax checks; git diff --check passes.
 - Chrome DOM checks: authenticated overview, holdings navigation/search, mobile labels and overflow, allocation basis toggle, incomplete-history message, change explanations, logout/reconnect. No error/warning entries were captured in the synthetic preview for those flows.
 - Mobile screenshot revealed the old table CSS problem; it was corrected and verified through accessibility/DOM checks. Subsequent screenshot capture repeatedly timed out, so a final visual screenshot pass is still pending.
-- All test holdings/tokens/ledgers were synthetic. Production login, storage provisioning, existing data migration and backup restoration have not been performed.
+- All test holdings/tokens/ledgers were synthetic. Production login, existing data migration and backup restoration remain unverified; managed storage is provisioned separately through Vercel.
 - Login anti-forgery state uses the broker's documented redirect_params round trip: https://www.kite.trade/docs/connect/v3/user/#login-flow . States expire after 10 minutes, are consumed once and must match the HttpOnly browser cookie. Begin login on the configured callback origin.

@@ -5,6 +5,7 @@ from pathlib import Path
 from contextvars import ContextVar
 from contextlib import contextmanager
 import hashlib
+from backend.app.services.remote_db import remote_settings, connect as remote_connect
 
 _BASE = Path(__file__).resolve().parents[2]
 # Never hydrate an account from a bundled database containing unowned records.
@@ -13,6 +14,8 @@ DB_PATH = DATA_ROOT / "sessions.db"
 _account = ContextVar("tunefolio_account", default=None)
 
 def storage_ready():
+    if remote_settings():
+        return True
     # Serverless local files cannot provide durable or shared sessions.
     return not os.getenv("VERCEL") and (
         os.getenv("ENVIRONMENT") != "production" or bool(os.getenv("TUNEFOLIO_DATA_DIR"))
@@ -29,12 +32,16 @@ def _connect(path):
     return conn
 
 def system_connection():
+    if remote_settings():
+        return remote_connect()
     return _connect(DATA_ROOT / "sessions.db")
 
 def get_connection():
     user_id = _account.get()
     if not user_id:
         raise RuntimeError("Account context is required for portfolio storage")
+    if remote_settings():
+        return remote_connect(user_id)
     name = hashlib.sha256(user_id.encode()).hexdigest()
     return _connect(DATA_ROOT / "accounts" / (name + ".db"))
 
@@ -428,11 +435,13 @@ def create_delivery_cache_table():
         )
     """)
     # Add OHLC columns if table already exists (migration for existing DBs)
-    for col in ["close_price", "open_price", "high_price", "low_price"]:
+    # Remote schemas are created with these columns from their first version.
+    for col in ([] if remote_settings() else ["close_price", "open_price", "high_price", "low_price"]):
         try:
             cursor.execute(f"ALTER TABLE delivery_cache ADD COLUMN {col} REAL DEFAULT 0")
-        except Exception:
-            pass  # Column already exists
+        except sqlite3.OperationalError as error:
+            if 'duplicate column name' not in str(error):
+                raise
     conn.commit()
     conn.close()
 
