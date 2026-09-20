@@ -1,6 +1,7 @@
 """Account-scoped, auditable performance and holdings-change evidence."""
 import json
 import math
+from backend.app.services.valuation import normalize_holding
 from datetime import datetime, timezone
 from backend.app.services.db import get_connection
 
@@ -32,7 +33,7 @@ def observe_holdings(holdings, retrieved_at):
 
 def explain_changes(before, after):
     def indexed(rows):
-        return {(r['tradingsymbol'], r['exchange']): r for r in rows}
+        return {(r['tradingsymbol'], r['exchange']): normalize_holding(r) for r in rows}
     old, new = indexed(before), indexed(after)
     result = []
     for symbol, exchange in sorted(old.keys() | new.keys()):

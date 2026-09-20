@@ -4,8 +4,11 @@ Trades service: CSV tradebook import, FIFO realised P&L engine, FY helpers.
 
 import csv
 from collections import defaultdict
+import hashlib
+import json
 from datetime import datetime
 from pathlib import Path
+from backend.app.services.valuation import india_today
 
 from backend.app.services.db import get_connection, DB_PATH
 
@@ -106,7 +109,7 @@ def get_fy_bounds(fy_label: str = None) -> tuple:
     if fy_label:
         start_year = int(fy_label[2:6])
     else:
-        today = datetime.now()
+        today = india_today()
         start_year = today.year if today.month >= 4 else today.year - 1
 
     return (f"{start_year}-04-01", f"{start_year + 1}-03-31")
@@ -159,10 +162,27 @@ def compute_realised_pnl(fy_start: str = None, fy_end: str = None) -> dict:
         SELECT symbol, isin, trade_date, trade_type, quantity, price,
                order_execution_time, exchange, trade_id
         FROM trades
-        ORDER BY symbol, trade_date ASC, order_execution_time ASC
+        ORDER BY symbol, trade_date ASC, order_execution_time ASC, exchange, trade_id
     """)
     rows = cursor.fetchall()
     conn.close()
+
+    # A trade sync is not proof of complete historical coverage. Bind an operator
+    # reconciliation receipt to the exact ledger and requested sale window.
+    with get_connection() as receipt_conn:
+        receipt_conn.execute("""CREATE TABLE IF NOT EXISTS trade_reconciliations (
+            period_start TEXT NOT NULL, period_end TEXT NOT NULL,
+            ledger_digest TEXT NOT NULL, source TEXT NOT NULL,
+            verified_at TEXT NOT NULL,
+            PRIMARY KEY (period_start, period_end)
+        )""")
+        receipts = receipt_conn.execute("SELECT * FROM trade_reconciliations").fetchall()
+    receipt_conn.close()
+    digest = hashlib.sha256(json.dumps([dict(row) for row in rows], sort_keys=True).encode()).hexdigest()
+    verified = bool(fy_start and fy_end and any(
+        receipt["period_start"] <= fy_start and receipt["period_end"] >= fy_end
+        and receipt["ledger_digest"] == digest and receipt["source"].strip()
+        for receipt in receipts))
 
     # Group by symbol (pool across exchanges — Indian tax treatment)
     symbol_trades = defaultdict(list)
@@ -230,9 +250,11 @@ def compute_realised_pnl(fy_start: str = None, fy_end: str = None) -> dict:
             total_rpnl += symbol_rpnl
 
     return {
-        "total_realised_pnl": round(total_rpnl, 2) if rows and not missing_basis else None,
-        "status": "incomplete" if missing_basis else ("available" if rows else "unavailable"),
+        "total_realised_pnl": round(total_rpnl, 2) if verified and not missing_basis else None,
+        "status": "incomplete" if missing_basis else ("available" if verified else "unavailable"),
         "missing_cost_basis": missing_basis,
+        "coverage_verified": verified,
+        "ledger_digest": digest,
         "method": "FIFO gross of charges, based on imported trades; corporate actions must be reconciled",
         "by_symbol": by_symbol,
         "total_symbols_sold": len(by_symbol),
@@ -254,7 +276,7 @@ def compute_historical_holdings(current_symbols: list = None, fy_start: str = No
     cursor.execute("""
         SELECT symbol, trade_date, trade_type, quantity, price, exchange, isin
         FROM trades
-        ORDER BY symbol, trade_date ASC, order_execution_time ASC
+        ORDER BY symbol, trade_date ASC, order_execution_time ASC, exchange, trade_id
     """)
     rows = cursor.fetchall()
     conn.close()

@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 SYSTEM_TABLES = frozenset({'zerodha_sessions', 'login_states'})
 ACCOUNT_TABLES = frozenset({'holdings_snapshots', 'instruments', 'trades',
-    'delivery_cache', 'index_cache', 'portfolio_observations', 'performance_events'})
+    'delivery_cache', 'index_cache', 'portfolio_observations', 'performance_events', 'trade_reconciliations'})
 # Match string literals and comments before identifiers, so their text is untouched.
 _TOKENS = re.compile(r"'(?:''|[^'])*'|--[^\n]*|/\*.*?\*/|[A-Za-z_][A-Za-z0-9_]*", re.S)
 

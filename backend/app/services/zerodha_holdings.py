@@ -2,6 +2,7 @@ import os
 import time
 import logging
 import requests
+from backend.app.services.valuation import normalize_holding
 from fastapi import HTTPException
 from backend.app.services.db import get_active_access_token, save_holdings_snapshot, deactivate_session
 
@@ -23,7 +24,7 @@ def fetch_zerodha_holdings(session_id: str = None):
     if cache_key in _holdings_cache:
         entry = _holdings_cache[cache_key]
         if entry["data"] and (now - entry["timestamp"]) < CACHE_TTL:
-            return entry["data"]
+            return [normalize_holding(h) for h in entry["data"]]
 
     access_token = get_active_access_token(session_id)
 
@@ -36,7 +37,8 @@ def fetch_zerodha_holdings(session_id: str = None):
     KITE_API_KEY = os.getenv("KITE_API_KEY")
 
     headers = {
-        "Authorization": f"token {KITE_API_KEY}:{access_token}"
+        "Authorization": f"token {KITE_API_KEY}:{access_token}",
+        "X-Kite-Version": "3"
     }
 
     response = requests.get(
@@ -59,7 +61,7 @@ def fetch_zerodha_holdings(session_id: str = None):
     holdings = response.json()["data"]
 
     # Persist snapshot
-    save_holdings_snapshot(holdings)
+    save_holdings_snapshot([normalize_holding(h) for h in holdings])
 
     from backend.app.services.performance import observe_holdings
     from datetime import datetime, timezone
@@ -68,7 +70,7 @@ def fetch_zerodha_holdings(session_id: str = None):
     # Update per-session cache
     _holdings_cache[cache_key] = {"data": holdings, "timestamp": now}
 
-    return holdings
+    return [normalize_holding(h) for h in holdings]
 
 
 def fetch_zerodha_margins(session_id: str = None):
@@ -93,7 +95,8 @@ def fetch_zerodha_margins(session_id: str = None):
     KITE_API_KEY = os.getenv("KITE_API_KEY")
 
     headers = {
-        "Authorization": f"token {KITE_API_KEY}:{access_token}"
+        "Authorization": f"token {KITE_API_KEY}:{access_token}",
+        "X-Kite-Version": "3"
     }
 
     response = requests.get(
