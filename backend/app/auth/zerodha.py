@@ -2,11 +2,13 @@ import os
 import requests
 import hashlib
 import threading
+import secrets
+from urllib.parse import urlencode
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, Response, Request
 from dotenv import load_dotenv
 from fastapi.responses import RedirectResponse
-from backend.app.services.db import save_zerodha_session, deactivate_session
+from backend.app.services.db import save_zerodha_session, deactivate_session, create_login_state, consume_login_state
 
 # Compute .env path relative to this file (backend/app/auth/ -> backend/)
 _env_path = Path(__file__).resolve().parents[2] / ".env"
@@ -20,9 +22,12 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:8000")
 
 
 @router.get("/callback")
-def zerodha_callback(request_token: str = Query(None)):
+def zerodha_callback(request: Request, request_token: str = Query(None), state: str = Query(None)):
     if not request_token:
         raise HTTPException(status_code=400, detail="Missing request token")
+    cookie_state = request.cookies.get('tf_login_state')
+    if not state or not cookie_state or not secrets.compare_digest(state, cookie_state) or not consume_login_state(state):
+        raise HTTPException(status_code=400, detail="Login verification expired or invalid. Start login again on the configured callback domain.")
 
     # Generate checksum
     checksum = hashlib.sha256(
@@ -37,7 +42,7 @@ def zerodha_callback(request_token: str = Query(None)):
         "checksum": checksum
     }
 
-    response = requests.post(session_url, data=payload)
+    response = requests.post(session_url, data=payload, timeout=15)
 
     if response.status_code != 200:
         raise HTTPException(
@@ -56,32 +61,28 @@ def zerodha_callback(request_token: str = Query(None)):
         access_token=access_token
     )
 
-    # Sync trades with the fresh token
+    # Background work receives an explicit account; thread-local context is not inherited.
     from backend.app.services.trade_sync import sync_trades_from_kite
-    if os.getenv("VERCEL"):
-        # Synchronous on Vercel — threads unreliable in serverless
-        try:
-            sync_trades_from_kite(access_token)
-        except Exception:
-            pass
-    else:
-        threading.Thread(target=sync_trades_from_kite, args=(access_token,), daemon=True).start()
+    if not os.getenv('VERCEL'):
+        threading.Thread(target=sync_trades_from_kite,
+                         args=(access_token, user_id), daemon=True).start()
+    # On Vercel, sync in a separate account-bound request instead of a frozen thread.
 
     # Set session cookie and redirect to frontend
     redirect = RedirectResponse(
-        url=f"{FRONTEND_URL}/?status=connected",
+        url="/?status=connected",
         status_code=302
     )
     # Session cookie: no Max-Age/Expires = browser-session cookie (deleted on browser close)
-    # Encode access_token in cookie so it survives Vercel's ephemeral /tmp
     redirect.set_cookie(
         key="tf_session",
-        value=f"{session_id}:{access_token}",
+        value=session_id,
         httponly=True,
         samesite="lax",
-        secure=FRONTEND_URL.startswith("https"),
+        secure=os.getenv('ENVIRONMENT') == 'production' or request.url.scheme == "https",
         path="/"
     )
+    redirect.delete_cookie('tf_login_state', path='/auth/zerodha')
     return redirect
 
 
@@ -97,9 +98,12 @@ def zerodha_logout(request: Request):
 
 
 @router.get("/login")
-def zerodha_login():
-    login_url = (
-        f"https://kite.trade/connect/login"
-        f"?api_key={KITE_API_KEY}&v=3"
-    )
-    return RedirectResponse(url=login_url)
+def zerodha_login(request: Request):
+    state = create_login_state()
+    query = urlencode({'api_key': KITE_API_KEY, 'v': '3',
+                       'redirect_params': urlencode({'state': state})})
+    response = RedirectResponse(url='https://kite.zerodha.com/connect/login?' + query)
+    response.set_cookie('tf_login_state', state, max_age=600, httponly=True,
+                        secure=os.getenv('ENVIRONMENT') == 'production' or request.url.scheme == 'https',
+                        samesite='lax', path='/auth/zerodha')
+    return response

@@ -1,6 +1,4 @@
-const API_BASE = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost"
-    ? "http://127.0.0.1:8000"
-    : "";
+const API_BASE = ""; // Same-origin cookies and API, including local previews.
 
 /* ========================================
    Fetch helpers
@@ -39,11 +37,7 @@ async function fetchHoldings() {
     let detail = "";
     try { const body = await res.json(); detail = body.detail || ""; } catch (_) {}
     console.error(`Holdings API error: HTTP ${res.status} — ${detail}`);
-    if ((res.status === 401 || res.status === 403) && !justAuthenticated) {
-      // Session expired or invalid — redirect to re-login
-      window.location.href = `${API_BASE}/auth/zerodha/login`;
-      throw new Error("Session expired — redirecting to login");
-    }
+    setDataState(res.status === 401 ? "Session expired. Reconnect to load your portfolio." : "Portfolio data is unavailable. Retry shortly.");
     throw new Error(`Failed to load holdings (HTTP ${res.status}: ${detail})`);
   }
   return res.json();
@@ -59,7 +53,7 @@ async function logoutZerodha() {
     });
     if (!res.ok) throw new Error("Logout failed");
     // Redirect to login after logout
-    window.location.href = `${API_BASE}/auth/zerodha/login`;
+    window.location.href = "/";
   } catch (err) {
     console.error("Logout error:", err);
   }
@@ -69,7 +63,8 @@ async function logoutZerodha() {
    Utilities
 ======================================== */
 
-function formatINR(value = 0) {
+function formatINR(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
   return "\u20B9" + Number(value).toLocaleString("en-IN", {
     maximumFractionDigits: 2
   });
@@ -924,6 +919,8 @@ function renderHoldingsTable(data) {
       });
     }
 
+    const labels = Array.from(tbody.closest('table').querySelectorAll('thead tr:first-child th'), th => th.textContent.trim());
+    tr.querySelectorAll('td').forEach((td, i) => { td.dataset.label = labels[i] || 'Details'; });
     tbody.appendChild(tr);
 
     // Delivery detail row (hidden by default)
@@ -984,6 +981,8 @@ function renderHoldingsTable(data) {
 
 function getFilteredAndSorted() {
   let data = getGloballyFilteredHoldings();
+  const query = document.getElementById('holding-search')?.value.trim().toLowerCase() || '';
+  if (query) data = data.filter(h => `${h.symbol} ${h.sector || ''}`.toLowerCase().includes(query));
 
   if (currentSort.key) {
     const key = currentSort.key;
@@ -1064,6 +1063,8 @@ function renderHistoricalTable(data) {
       <td>${h.num_trades || 0}</td>
     `;
 
+    const labels = Array.from(tbody.closest('table').querySelectorAll('thead tr:first-child th'), th => th.textContent.trim());
+    tr.querySelectorAll('td').forEach((td, i) => { td.dataset.label = labels[i] || 'Details'; });
     tbody.appendChild(tr);
 
     // Delivery detail row (hidden by default)
@@ -1220,10 +1221,10 @@ async function renderHistoricalHoldings(fy = "") {
       console.warn("Historical holdings: empty or invalid response", res);
       if (tbody) {
         tbody.innerHTML = `<tr><td colspan="10" class="loading" style="color:var(--muted);">
-          No historical trade data available.
+          Historical data could not be loaded. Retry or reconnect.
         </td></tr>`;
       }
-      document.getElementById("historical-count").innerText = "0 stocks";
+      document.getElementById("historical-count").innerText = "Unavailable";
       return;
     }
 
@@ -1351,7 +1352,7 @@ async function renderHoldings() {
     pnlEl.className = "value " + (totalPnl >= 0 ? "positive" : "negative");
 
     document.getElementById("last-sync").innerText =
-      "Last sync: " + new Date().toLocaleTimeString();
+      res.meta?.retrieved_at ? "Retrieved: " + new Date(res.meta.retrieved_at).toLocaleString() + " · quote time unavailable" : "Retrieval time unavailable";
 
     document.getElementById("holdings-count").innerText =
       `${res.count} stocks`;
@@ -1407,6 +1408,7 @@ async function renderHoldings() {
     refreshPnlChart();
     refreshValueCompare();
 
+    loadEvidence();
     console.log("KPIs + charts updated successfully");
 
     /* -------- REALISED P&L KPIs -------- */
@@ -1436,7 +1438,7 @@ async function renderHoldings() {
       const margins = await fetchMargins();
       if (margins) {
         const cashEl = document.getElementById("kpi-cash");
-        cashEl.innerText = formatINR(margins.net);
+        cashEl.innerText = formatINR(margins.cash);
       }
     } catch (e) {
       console.warn("Margins fetch failed:", e);
@@ -1458,7 +1460,7 @@ async function renderHoldings() {
           if (dpnl.unrealised_daily) parts.push("Unrealised: " + formatINR(dpnl.unrealised_daily));
           if (dpnl.realised_daily) parts.push("Realised: " + formatINR(dpnl.realised_daily));
           if (dpnl.date) parts.push(dpnl.date);
-          valueEl.title = parts.join(" | ");
+          valueEl.title = dpnl.explanation || parts.join(" | ");
         }
       }
     } catch (e) {
@@ -1467,6 +1469,7 @@ async function renderHoldings() {
 
   } catch (err) {
     console.error("Holdings error:", err);
+    setDataState("Holdings unavailable. Retry, or reconnect if your session expired.");
     // Show error in holdings table so user sees something
     const tbody = document.getElementById("holdings-body");
     if (tbody) {
@@ -1895,9 +1898,9 @@ function renderDeliveryChart(canvasId, data, symbol) {
   const labels = data.map(d => d.date);
 
   // Per-day formula: settled = total traded − delivered
-  const deliveredQty = data.map(d => d.delivered_qty || 0);
+  const deliveredQty = data.map(d => d.delivered_qty ?? null);
   const notDeliveredQty = data.map(d =>
-    (d.total_traded_qty || 0) - (d.delivered_qty || 0)
+    d.delivered_qty == null ? null : (d.total_traded_qty || 0) - d.delivered_qty
   );
 
   // Color per bar based on price direction:
@@ -1984,7 +1987,8 @@ function renderDeliveryChart(canvasId, data, symbol) {
             },
             beforeBody: (tooltipItems) => {
               const idx = tooltipItems[0].dataIndex;
-              const del = deliveredQty[idx] || 0;
+              const del = deliveredQty[idx];
+              if (del == null) return "Delivery breakdown unavailable";
               const notDel = notDeliveredQty[idx] || 0;
               const total = del + notDel;
               const delPct = total > 0 ? ((del / total) * 100).toFixed(1) : "0.0";
@@ -2252,37 +2256,27 @@ async function loadComparativeData(period) {
 let justAuthenticated = false;
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // Detect auth success redirect (?status=connected)
-  const params = new URLSearchParams(window.location.search);
-  if (params.get("status") === "connected") {
-    justAuthenticated = true;
-    const statusEl = document.getElementById("connection-status");
-    if (statusEl) {
-      statusEl.textContent = "\u25cf Just connected to Zerodha";
-      statusEl.style.color = "#16a34a";
-    }
-    // Clean up URL (remove query param without page reload)
-    window.history.replaceState({}, "", window.location.pathname);
-  } else {
-    // Check for active session — redirect to Zerodha login if none
-    try {
-      const sessionRes = await fetch(`${API_BASE}/session/active`, FETCH_OPTS);
-      if (!sessionRes.ok) {
-        window.location.href = `${API_BASE}/auth/zerodha/login`;
-        return; // Stop bootstrap — page is redirecting
-      }
-    } catch (err) {
-      console.error("Session check failed:", err);
-      window.location.href = `${API_BASE}/auth/zerodha/login`;
+  initializeNavigation();
+  try {
+    const sessionRes = await fetch(`${API_BASE}/session/active`, FETCH_OPTS);
+    if (!sessionRes.ok) {
+      setDataState(sessionRes.status === 503 ? "Service unavailable: durable storage needs configuration." : "Connect Zerodha to view your portfolio.", sessionRes.status === 503 ? "Service unavailable" : "Not connected");
       return;
     }
+    document.getElementById("connection-status").textContent = "Connected to Zerodha";
+    document.getElementById("data-state").hidden = true;
+    window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+  } catch (_) {
+    setDataState("Cannot reach the service. Check your connection and retry.");
+    return;
   }
 
   // Apply saved section order before rendering
-  applySavedOrder();
+  // Task-oriented navigation uses a fixed order.
 
   renderHoldings();
   renderHistoricalHoldings();
+  // Load evidence after holdings has recorded the latest observation.
 
   // Section reorder buttons
   initReorderButtons();
@@ -2393,7 +2387,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
-  // Session security: The tf_session cookie has no Max-Age/Expires,
+  // Session cookies are checked against server-side expiry and revocation.
+  // The tf_session cookie has no Max-Age/Expires,
   // making it a browser-session cookie. When the browser is fully closed:
   //   1. Cookie is automatically deleted by the browser
   //   2. Next visit has no cookie -> /session/active returns 404 -> redirect to login

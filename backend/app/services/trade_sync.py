@@ -3,14 +3,22 @@ import logging
 import requests
 from datetime import datetime
 
-from backend.app.services.db import get_any_active_access_token, get_connection
+from backend.app.services.db import get_connection, account_scope, init_account
 
 logger = logging.getLogger("tunefolio.trade_sync")
 
 KITE_API_KEY = os.getenv("KITE_API_KEY")
 
 
-def sync_trades_from_kite(access_token: str = None) -> dict:
+def sync_trades_from_kite(access_token: str = None, user_id: str = None) -> dict:
+    if not access_token or not user_id:
+        return {"status": "skipped", "reason": "explicit_account_required"}
+    with account_scope(user_id):
+        init_account()
+        return _sync_account(access_token)
+
+
+def _sync_account(access_token: str) -> dict:
     """
     Fetch today's trades from Kite API and insert into the trades table.
     Idempotent: uses INSERT OR IGNORE on UNIQUE(trade_id, symbol, trade_date, exchange).
@@ -21,7 +29,7 @@ def sync_trades_from_kite(access_token: str = None) -> dict:
     Returns:
         dict with status, inserted count, total fetched, and timestamp.
     """
-    token = access_token or get_any_active_access_token()
+    token = access_token
 
     if not token:
         logger.info("Trade sync skipped: no active access token")

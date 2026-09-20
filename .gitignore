@@ -24,3 +24,6 @@ backend/data/*.db
 # Python -m http.server 5500
 # Starting back end
 # uvicorn backend.app.main:app
+# Account databases and test artifacts
+backend/data/private/
+.pytest_cache/
