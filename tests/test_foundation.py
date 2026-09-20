@@ -222,5 +222,21 @@ def test_cash_zero_and_missing_are_distinct(monkeypatch):
     result = portfolio.portfolio_margins(request)
     assert result['cash'] == 0
     assert result['live_balance'] == 123
+    assert result['available_balance'] == 123
     monkeypatch.setattr(portfolio, 'fetch_zerodha_margins', lambda _: {'available': {}})
     assert portfolio.portfolio_margins(request)['cash'] is None
+
+
+def test_instrument_batch_is_idempotent_and_preserves_enrichment():
+    with db.account_scope('alice'):
+        db.init_account()
+        holdings = [{'tradingsymbol': 'S'+str(i), 'exchange': 'NSE', 'isin': 'TEST'+str(i)} for i in range(125)]
+        db.upsert_instruments_from_holdings(holdings)
+        with db.get_connection() as conn:
+            conn.execute("UPDATE instruments SET sector = 'Technology' WHERE symbol = 'S0'")
+        conn.close()
+        db.upsert_instruments_from_holdings(holdings)
+        conn = db.get_connection()
+        assert conn.execute('SELECT COUNT(*) FROM instruments').fetchone()[0] == 125
+        assert conn.execute("SELECT sector FROM instruments WHERE symbol = 'S0'").fetchone()[0] == 'Technology'
+        conn.close()
