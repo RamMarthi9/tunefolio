@@ -193,3 +193,34 @@ def test_broker_expiry_revokes_only_affected_account(monkeypatch):
         assert error.value.status_code == 401
     assert db.get_active_access_token(a) is None
     assert db.get_active_access_token(b) is not None
+
+
+def test_partial_trade_sync_does_not_verify_fiscal_profit():
+    from backend.app.services.trades import compute_realised_pnl
+    seed('alice', 'AAA')
+    with db.account_scope('alice'):
+        result = compute_realised_pnl('2026-04-01', '2026-09-20')
+        assert result['total_realised_pnl'] is None
+        assert result['coverage_verified'] is False
+        # A reviewed receipt permits a genuine zero for a period with no sales.
+        with db.get_connection() as conn:
+            conn.execute('INSERT INTO trade_reconciliations VALUES (?, ?, ?, ?, ?)',
+                         ('2026-04-01', '2026-09-20', result['ledger_digest'], 'synthetic reconciliation', '2026-09-20'))
+        conn.close()
+        assert compute_realised_pnl('2026-04-01', '2026-09-20')['total_realised_pnl'] == 0
+        assert compute_realised_pnl('2026-04-01', '2026-09-21')['total_realised_pnl'] is None
+    with db.account_scope('bob'):
+        db.init_account()
+        assert compute_realised_pnl('2026-04-01', '2026-09-20')['total_realised_pnl'] is None
+
+
+def test_cash_zero_and_missing_are_distinct(monkeypatch):
+    from backend.app.routes import portfolio
+    from starlette.requests import Request
+    request = Request({'type': 'http', 'headers': []})
+    monkeypatch.setattr(portfolio, 'fetch_zerodha_margins', lambda _: {'available': {'cash': 0, 'live_balance': 123, 'opening_balance': 456}, 'net': 789})
+    result = portfolio.portfolio_margins(request)
+    assert result['cash'] == 0
+    assert result['live_balance'] == 123
+    monkeypatch.setattr(portfolio, 'fetch_zerodha_margins', lambda _: {'available': {}})
+    assert portfolio.portfolio_margins(request)['cash'] is None

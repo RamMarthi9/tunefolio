@@ -1415,13 +1415,17 @@ async function renderHoldings() {
     try {
       const rpnl = await fetchRealisedPnl();
       if (rpnl) {
+        document.getElementById("kpi-realised-current-label").textContent = "Realised P&L (" + rpnl.ytd.label + ")";
+        for (const [id, period] of [["ytd", rpnl.ytd], ["prev", rpnl.previous_fy]]) {
+          document.getElementById("kpi-realised-" + id + "-status").textContent = period.realised_pnl == null ? (period.reason || "Verified history unavailable") : "FIFO, before charges";
+        }
         const ytdEl = document.getElementById("kpi-realised-ytd");
         ytdEl.innerText = formatINR(rpnl.ytd.realised_pnl);
-        ytdEl.className = "value " + (rpnl.ytd.realised_pnl >= 0 ? "positive" : "negative");
+        ytdEl.className = "value " + (rpnl.ytd.realised_pnl == null ? "" : rpnl.ytd.realised_pnl >= 0 ? "positive" : "negative");
 
         const prevEl = document.getElementById("kpi-realised-prev");
         prevEl.innerText = formatINR(rpnl.previous_fy.realised_pnl);
-        prevEl.className = "value " + (rpnl.previous_fy.realised_pnl >= 0 ? "positive" : "negative");
+        prevEl.className = "value " + (rpnl.previous_fy.realised_pnl == null ? "" : rpnl.previous_fy.realised_pnl >= 0 ? "positive" : "negative");
 
         // Dynamic label for previous FY
         const prevLabel = document.getElementById("kpi-realised-prev-label");
@@ -1439,6 +1443,11 @@ async function renderHoldings() {
       if (margins) {
         const cashEl = document.getElementById("kpi-cash");
         cashEl.innerText = formatINR(margins.cash);
+        document.getElementById("cash-breakdown").textContent = [
+          ["Raw cash", margins.cash], ["Current available balance", margins.live_balance],
+          ["Opening balance", margins.opening_balance], ["Collateral", margins.collateral],
+          ["Net trading margin", margins.net], ["Intraday pay-in", margins.intraday_payin]
+        ].map(([label, value]) => label + ": " + formatINR(value)).join(" · ");
       }
     } catch (e) {
       console.warn("Margins fetch failed:", e);

@@ -42,7 +42,7 @@ def daily_pnl(request: Request):
                        "prev_close": close, "last_price": last,
                        "change": round((last-close)*h["quantity"], 2)})
     total = round(sum(m["change"] for m in movers), 2) if not missing else None
-    return {"label": "Move vs broker previous close", "date": None,
+    return {"label": "Holdings change since previous close", "date": None,
             "total_daily_pnl": total, "unrealised_daily": total,
             "realised_daily": None, "stock_count": len(movers),
             "status": "partial" if missing else "available", "missing_symbols": missing,
@@ -118,6 +118,9 @@ def portfolio_holdings(request: Request):
             "symbol": h["tradingsymbol"],
             "exchange": h["exchange"],
             "quantity": h["quantity"],
+            "settled_quantity": h.get("settled_quantity"),
+            "t1_quantity": h.get("t1_quantity"),
+            "mtf_quantity": h.get("mtf_quantity"),
             "avg_buy_price": h["average_price"],
             "current_price": h["last_price"],
             "invested_value": invested_value,
@@ -460,9 +463,9 @@ def realised_pnl(fy: str = None):
         get_fy_bounds,
         get_available_fys,
     )
-    from datetime import datetime as _dt
+    from backend.app.services.valuation import india_today
 
-    today = _dt.now().strftime("%Y-%m-%d")
+    today = india_today().isoformat()
 
     # Current FY bounds
     current_fy_start, current_fy_end = get_fy_bounds()
@@ -486,6 +489,8 @@ def realised_pnl(fy: str = None):
         specific_fy = {
             "label": fy,
             "realised_pnl": specific_result["total_realised_pnl"],
+            "status": specific_result["status"],
+            "reason": "Historical trade coverage and purchase costs must be reconciled before a verified total is available.",
             "total_sells": specific_result["total_sells"],
             "symbols_sold": specific_result["total_symbols_sold"],
             "by_symbol": specific_result["by_symbol"],
@@ -495,14 +500,18 @@ def realised_pnl(fy: str = None):
 
     return {
         "ytd": {
-            "label": f"YTD ({current_fy_label})",
+            "label": current_fy_label,
             "realised_pnl": ytd_result["total_realised_pnl"],
+            "status": ytd_result["status"],
+            "reason": "Historical trade coverage and purchase costs must be reconciled before a verified total is available.",
             "total_sells": ytd_result["total_sells"],
             "symbols_sold": ytd_result["total_symbols_sold"],
         },
         "previous_fy": {
             "label": prev_fy_label,
             "realised_pnl": prev_fy_result["total_realised_pnl"],
+            "status": prev_fy_result["status"],
+            "reason": "Historical trade coverage and purchase costs must be reconciled before a verified total is available.",
             "total_sells": prev_fy_result["total_sells"],
             "symbols_sold": prev_fy_result["total_symbols_sold"],
         },

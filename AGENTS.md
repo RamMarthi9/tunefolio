@@ -4,8 +4,10 @@
 Repository: https://github.com/RamMarthi9/tunefolio.
 Local root: C:/Users/ramma/Documents/Ram/tunefolio.
 Baseline HEAD: 2fcf8ab. The security, persistence, navigation and performance changes
-described below are in draft PR #1 on codex/portfolio-security-and-dashboard.
-Remote storage follow-up is being validated before production rollout.
+described below were merged in PR #1 and deployed on 2026-09-20.
+GitHub main release: 5ca30a042e7392559292dd2116bc1e06ee329c01.
+Local Git metadata still points at baseline: fetch is denied for .git/FETCH_HEAD even
+after a permission grant. Working files contain the release; do not overwrite them.
 Read git status before changes. Preserve unrelated untracked `nul`.
 The user approved this order: isolation/sessions/persistence/truthful states,
 then overview/holdings/mobile navigation, then accurate history and explainable changes.
@@ -65,7 +67,7 @@ Do not label current-quantity backcasts as actual historical investment returns.
   --apply requires an account verified by broker sign-in and an empty existing series.
   Normalize stored timestamps to UTC. Verification is an operator attestation, not inferred.
 - What changed compares two distinct broker observations. Price effect = opening qty
-  × price change; quantity effect = qty change × ending price. Removed positions use
+  Ã— price change; quantity effect = qty change Ã— ending price. Removed positions use
   their last observed quote. Do not infer sale proceeds or causes of quantity changes.
 - Observations/snapshots are retrieval-driven, not guaranteed scheduled market-close data.
 - Yahoo delivery fields are null, not zero. Public price caches are account-local for now.
@@ -98,9 +100,9 @@ ledger schema, ownership migration and outstanding constraints.
 - Chrome connected successfully. Production tunefolio.in loaded 24 holdings on 2026-09-19.
 - Login redirected to tunefolio1.vercel.app and returned 401 while tunefolio.in worked;
   callback relative redirect fixes the code path, but live configuration is not changed.
-- Render's previous service was suspended. New persistent hosting must be provisioned.
+- Render's previous service was suspended. Production now uses Vercel with Turso.
 - No existing private history has been migrated; no production broker flow tested after edits.
-- Restore/backup drill, production cutover, real reconciled ledger import, and complete
+- Restore/backup drill, real reconciled ledger import, and complete
   corporate-action/tax accounting remain outside the verified local implementation.
 
 ## Additional session hardening and verification
@@ -109,11 +111,31 @@ Kite redirect_params returns that state; unmatched/replayed callbacks are reject
 Start login on the configured callback origin. Secure cookies are mandatory in production.
 Latest local validation: 51 tests pass (including libSQL adapter with local transport); JS syntax and diff whitespace checks pass.
 Chrome mobile DOM/accessibility checks passed after fixing the old stacked-table labels;
-final screenshot capture timed out. No production migration or deployment performed.
+final screenshot capture timed out. No production history migration performed.
+Production deployment subsequently completed; see Managed storage rollout below.
 
 ## Managed storage rollout
 Turso Starter ($0/month) installed in Vercel, US East (Virginia). Production resource
 `tunefolio-db` connected only to Production. `tunefolio-preview-db` is for Preview only.
-Remote transport/build checks and production cutover must be verified before declaring live.
+Vercel production deployment GxCLhopcGTvc98HoD1HL2uU114Gc is Ready.
+https://tunefolio.in/api/health returned 200 with storage=reachable; unauthenticated
+/portfolio/performance and /session/active returned 401 and Cache-Control: no-store.
+Chrome verified new production navigation and reconnect state. Preview login-state
+write reached Zerodha login; completing broker authentication remains a user action.
 Never put production DB credentials in Preview or Git. Broker sign-in is still required
 after cutover; no legacy portfolio or historical ledger is migrated automatically.
+
+## Quantity and reconciliation correction (2026-09-20)
+- Broker fetch returns copies normalized by valuation.normalize_holding: settled + T1
+  + MTF quantities. MTF cost uses its own average price. Do not add used/collateral
+  quantities. Retain raw observations and normalize on read to avoid false settlement
+  changes. All portfolio consumers use the same quantity basis.
+- FY dates use India time, April 1 rollover; UI displays FYyyyy-yy, never YTD.
+- Cash breakdown exposes raw cash, current balance, opening balance, collateral,
+  net margin and pay-in. Do not choose a fallback merely because raw cash is zero.
+- trade_reconciliations is account-scoped. A realised total requires a reviewed
+  period receipt tied to a deterministic ledger digest, plus complete FIFO basis.
+  Imports/syncs alone do not verify coverage. Do not fabricate reconciliation receipts.
+- Existing private history is incomplete for the current FY. User confirmed same
+  broker account and additional recent trades. Obtain current Console exports before
+  migration; no historical production import has been performed.
