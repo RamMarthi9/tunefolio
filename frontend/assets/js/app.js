@@ -1442,7 +1442,7 @@ async function renderHoldings() {
       const margins = await fetchMargins();
       if (margins) {
         const cashEl = document.getElementById("kpi-cash");
-        cashEl.innerText = formatINR(margins.cash);
+        cashEl.innerText = formatINR(margins.available_balance);
         document.getElementById("cash-breakdown").textContent = [
           ["Raw cash", margins.cash], ["Current available balance", margins.live_balance],
           ["Opening balance", margins.opening_balance], ["Collateral", margins.collateral],

@@ -341,21 +341,19 @@ def upsert_instruments_from_holdings(holdings: list):
         VALUES (?, ?, ?, ?, ?, ?)
     """
 
-    for h in holdings:
-        cursor.execute(
-            query,
-            (
-                h.get("tradingsymbol"),
-                h.get("exchange"),
-                None,                  # company_name (later)
-                None,                  # sector
-                None,                  # industry
-                h.get("isin")
-            )
-        )
+    # One bounded SQL statement per chunk avoids a remote interactive transaction
+    # sitting open across a round trip for every instrument.
+    try:
+        for offset in range(0, len(holdings), 100):
+            batch = holdings[offset:offset + 100]
+            values = [value for h in batch for value in
+                      (h.get("tradingsymbol"), h.get("exchange"), None, None, None, h.get("isin"))]
+            sql = query.rsplit("VALUES", 1)[0] + "VALUES " + ",".join(["(?, ?, ?, ?, ?, ?)"] * len(batch))
+            cursor.execute(sql, values)
+            conn.commit()
+    finally:
+        conn.close()
 
-    conn.commit()
-    conn.close()
 
 def enrich_instruments_with_sector():
     from backend.app.services.sector_map import get_sector_info

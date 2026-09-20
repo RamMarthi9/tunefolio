@@ -63,6 +63,8 @@ def portfolio_margins(request: Request):
 
     available = margins.get("available", {})
     return {
+        "available_balance": round(available["live_balance"], 2) if available.get("live_balance") is not None else None,
+        "balance_source": "available.live_balance",
         "net": round(margins["net"], 2) if margins.get("net") is not None else None,
         "cash": round(available["cash"], 2) if available.get("cash") is not None else None,
         "collateral": round(available["collateral"], 2) if available.get("collateral") is not None else None,

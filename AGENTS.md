@@ -139,3 +139,10 @@ after cutover; no legacy portfolio or historical ledger is migrated automaticall
 - Existing private history is incomplete for the current FY. User confirmed same
   broker account and additional recent trades. Obtain current Console exports before
   migration; no historical production import has been performed.
+
+- PR #2 merged and deployed at b941e5f76379e18a84369cdf0cf75bb3f4a45a32.
+  Live holdings totals reconciled with Kite. Cash API raw cash was zero while
+  available.live_balance matched Kite. Use live_balance as Available balance (equity),
+  retain raw breakdown, never describe it as a withdrawable cash amount.
+- Runtime revealed Turso SQLITE_BUSY interactive transaction expiry during per-row
+  instrument inserts. Batch inserts in bounded statements and close on errors.
